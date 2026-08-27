@@ -136,7 +136,15 @@ passam a carregar a forma com underscore, e o carregador aplica a bijeção.
 | Triagem | `agent-triagem` | `agent-triagem` | 1 por tribe |
 | Orquestração | `agent-orq-<categoria>` | `agent-orq-infra` | 1 **instância por pedido** |
 | Coordenação | `agent-coord-<categoria>` | `agent-coord-dados` | 1 por categoria |
-| Especialista | `agent-spec-<categoria>-<especialidade>` | `agent-spec-infra-terraform` | N por categoria |
+| Especialista | `agent-spec-<categoria>-<especialidade>` | `agent-spec-infra-terraform` | N por categoria, **mínimo 2** |
+
+Dois desses especialistas são **obrigatórios em todo squad**, e a
+[§4.6](#46-a-composição-mínima-de-um-squad-planner-e-validator) diz por quê:
+
+| Papel | Nome | Faz |
+|---|---|---|
+| Planner | `agent-spec-<categoria>-planner` | transforma a demanda em plano verificável |
+| Validator | `agent-spec-<categoria>-validator` | julga o plano, sem corrigi-lo |
 
 `<categoria>` vem do enum fechado da triagem. Acrescentar uma categoria implica
 acrescentar, no mínimo, um orquestrador e um coordenador — ver
@@ -338,6 +346,61 @@ triagem a chance de classificar melhor.
 
 > **Invariante R8.** Nunca encaminhar de volta para a categoria que acabou de
 > trabalhar. Ela devolveu porque terminou o que podia; devolver é laço.
+
+### 4.6 A composição mínima de um squad: planner e validator
+
+Todo squad tem, no mínimo, dois especialistas — e eles não são dois quaisquer.
+
+| Papel | Recebe | Emite | Nunca faz |
+|---|---|---|---|
+| **Planner** | a demanda normalizada | um plano de passos verificáveis ([§5.7](#57-plano)) | executar, ou aprovar o próprio plano |
+| **Validator** | o plano | um veredito com achados ([§5.8](#58-veredito)) | corrigir o plano, ou propor alternativa |
+
+#### Por que dois agentes, e não um
+
+Um agente que planeja e se aprova **racionaliza as próprias premissas**. Ele
+escolheu a região porque lhe pareceu razoável; ao revisar, continua parecendo
+razoável, pelo mesmo motivo que a fez parecer razoável na primeira vez. A
+separação não é cerimônia de processo: é a única forma de a premissa ser lida
+por quem não a formulou.
+
+É a mesma razão pela qual o validador **não corrige**. Um validador que
+reescreve o passo passa a ter autoria, e na rodada seguinte está julgando o
+próprio trabalho — a separação se dissolve em duas trocas.
+
+#### O laço de revisão
+
+```mermaid
+flowchart LR
+    D(["demanda normalizada"]) --> P["planner"]
+    P --> PL[/"plano"/]
+    PL --> V["validator"]
+    V --> J{"veredito"}
+    J -->|"aprovado"| OK["segue para execução"]
+    J -->|"aprovado_com_ressalvas"| OK
+    J -->|"reprovado · revisao_n < 2"| P
+    J -->|"reprovado · revisao_n = 2"| B["a demanda é o problema,<br/>não o plano · bloqueio"]
+```
+
+> **Invariante R9.** `revisao_n` nunca passa de 2. Na terceira reprovação o
+> problema deixou de ser o plano: é a demanda. O validador emite `reprovado` com
+> um bloqueador dizendo isso, e o coordenador trata como bloqueio — o que leva a
+> [UC-22](#uc-22--encaminhamento-para-outra-categoria) ou a uma notificação.
+
+Ressalva não reprova. `aprovado_com_ressalvas` segue para execução carregando os
+achados leves junto, porque parar um plano executável por questão de
+nomenclatura custa uma rodada e não compra nada.
+
+#### O que muda por categoria
+
+O contrato é o mesmo nas três; o que muda é o **critério**, e ele mora na skill
+do validador:
+
+| Categoria | O planner ordena por | O validador reprova por |
+|---|---|---|
+| `infraestrutura` | dependência entre recursos | baseline de segurança, raio de alcance, reversibilidade |
+| `dados` | definição antes de investigação | definição não estabelecida, backfill marcado como reversível, impacto a jusante omitido |
+| `suporte` | contenção → confirmação → causa | causa antes de contenção, confirmação sem limiar e janela, paliativo sem volta |
 
 ---
 
@@ -580,6 +643,88 @@ O usuário não sabe que a tribe existe. `mensagem_usuario` não contém
 E um parcial é apresentado como parcial. Maquiar um parcial de sucesso é a única
 forma de errar nesta camada que o usuário não consegue detectar.
 
+### 5.7 Plano
+
+O que o planner emite. **Implementado** em `tribe/<categoria>-planner`.
+
+```json
+{
+  "correlacao": "01JQ8F3K2M4N5P6Q7R8S9T0V1W",
+  "categoria": "infraestrutura",
+  "passos": [
+    {
+      "n": 1,
+      "acao": "Criar bucket S3 privado em us-east-1",
+      "altera": "cria recurso novo",
+      "requer": ["nome_projeto", "ambiente"],
+      "verificacao": "get-public-access-block retorna true nos quatro campos"
+    }
+  ],
+  "premissas": ["O provedor é AWS, conforme a demanda"],
+  "riscos": ["Nome de bucket é global; colisão exige sufixo"],
+  "reversivel": true,
+  "aprovacao_humana": []
+}
+```
+
+| Campo | Descrição |
+|---|---|
+| `passos[].altera` | `cria recurso novo`, `altera existente`, `destroi`, `somente leitura` |
+| `passos[].requer` | valores que o passo precisa e ainda não tem |
+| `passos[].verificacao` | **como saber que deu certo**, observável |
+| `premissas` | o que o planner assumiu que a demanda não disse |
+| `reversivel` | `false` se algum passo destrói dado |
+| `aprovacao_humana` | passos que ninguém executa sem alguém aprovar |
+
+**Todo passo tem `verificacao`.** Passo sem forma de conferir não é plano, é
+intenção — e é a primeira coisa que o validador procura. Se o planner não sabe
+verificar, o passo está grande demais.
+
+**Premissa é declarada, não escondida.** Uma região escolhida porque a demanda
+não disse é premissa. Escondê-la é o que faz um plano ruim parecer bom.
+
+### 5.8 Veredito
+
+O que o validator emite. **Implementado** em `tribe/<categoria>-validator`.
+
+```json
+{
+  "correlacao": "01JQ8F3K2M4N5P6Q7R8S9T0V1W",
+  "veredito": "reprovado",
+  "revisao_n": 0,
+  "achados": [
+    {
+      "passo": 2,
+      "severidade": "critica",
+      "problema": "Security group permite 0.0.0.0/0 na porta 5432",
+      "correcao": "Restringir à sub-rede da aplicação, ou usar endpoint privado"
+    }
+  ],
+  "bloqueadores": []
+}
+```
+
+| Campo | Valores |
+|---|---|
+| `veredito` | `aprovado`, `aprovado_com_ressalvas`, `reprovado` |
+| `revisao_n` | revisões já ocorridas (R9) |
+| `achados[].passo` | o número do passo, ou `0` para o plano inteiro |
+| `achados[].severidade` | `critica`, `alta`, `media`, `baixa` |
+| `bloqueadores` | o que impede julgar: informação ausente no próprio plano |
+
+**Invariantes.** `aprovado` → `achados` vazio. `aprovado_com_ressalvas` → há
+achados e nenhum é `critica` ou `alta`. `reprovado` → ao menos um `critica` ou
+`alta`. `revisao_n` no máximo 2 (R9).
+
+`bloqueadores` não é sinônimo de achado. Achado é problema **no** plano;
+bloqueador é o plano não estar completo o bastante para ser julgado — sem
+`verificacao` em passo algum, por exemplo. Nesse caso `achados` fica vazio de
+propósito.
+
+**Um plano sem achados é resultado possível.** Validador que sempre acha algo
+ensina o planner a ignorar validação, e a partir daí o par existe só no
+organograma.
+
 ---
 
 ## 6. Fluxo completo
@@ -653,6 +798,11 @@ sequenceDiagram
 | [UC-22](#uc-22--encaminhamento-para-outra-categoria) | Encaminhamento para outra categoria | — | 3 → 2 → 3 |
 | [UC-23](#uc-23--limite-de-encaminhamentos-atingido) | Limite de encaminhamentos atingido | usuário | 3 |
 | UC-24 | Bloqueio que depende de humano vira notificação, não encaminhamento | usuário | 3 |
+| [UC-25](#uc-25--plano-aprovado-de-primeira) | Plano aprovado de primeira | — | 4 |
+| [UC-26](#uc-26--plano-reprovado-e-revisado) | Plano reprovado e revisado | — | 4 |
+| UC-27 | Plano aprovado com ressalvas segue com os achados | — | 4 |
+| [UC-28](#uc-28--terceira-reprovação-a-demanda-é-o-problema) | Terceira reprovação: a demanda é o problema | — | 4 → 3 |
+| UC-29 | Validador bloqueia por plano incompleto | — | 4 |
 
 ### UC-01 · Pedido acionável roteado e atendido
 
@@ -767,6 +917,53 @@ encerramento do coordenador **é** o envelope terminal.
 problema de limite, é tarefa mal definida chegando ao especialista. O lugar de
 corrigir é a interação anterior.
 
+### UC-25 · Plano aprovado de primeira
+
+**Ator:** nenhum humano.
+
+1. O coordenador envia a demanda normalizada ao planner.
+2. O planner emite o plano, com `verificacao` em todo passo e as premissas
+   declaradas.
+3. O coordenador envia o plano ao validator.
+4. O validator emite `aprovado`, com `achados` vazio.
+5. O coordenador segue para execução e registra os turnos.
+
+**Pós-condição:** `revisao_n` permanece 0.
+
+### UC-26 · Plano reprovado e revisado
+
+**Ator:** nenhum humano. **Pré-condição:** `revisao_n` abaixo de 2 (R9).
+
+1. O validator emite `reprovado` com ao menos um achado `critica` ou `alta`.
+2. O coordenador devolve **os achados** ao planner — não o veredito inteiro, e
+   nunca uma reescrita própria.
+3. O planner emite um plano novo. `revisao_n` incrementa.
+4. O validator julga o plano novo, sem memória do anterior (R6): ele julga o que
+   recebeu.
+
+**Pós-condição:** duas interações na mesma correlação, ambas na trilha. Perder a
+primeira esconderia por que a segunda existiu.
+
+**Detalhe deliberado:** achados `media` e `baixa` viajam junto com os graves. O
+planner corrige tudo de uma vez, em vez de descobrir a ressalva na rodada
+seguinte.
+
+### UC-28 · Terceira reprovação: a demanda é o problema
+
+**Ator:** nenhum humano. **Gatilho:** R9 — `revisao_n` chegou a 2 e o veredito
+seria `reprovado` de novo.
+
+1. O validator emite `reprovado` com um bloqueador dizendo que o limite de
+   revisões foi atingido.
+2. O coordenador **não pede um quarto plano**. Trata como bloqueio.
+3. O coordenador chama `agent-coord-response`, que decide entre encaminhar e
+   notificar ([UC-22](#uc-22--encaminhamento-para-outra-categoria),
+   [UC-21](#uc-21--resposta-volta-ao-usuário)).
+
+**Leitura do sinal:** três planos reprovados não é planner ruim. É demanda que
+não determina o suficiente para haver plano executável — e o lugar de corrigir
+isso é a triagem, não a quarta tentativa.
+
 ### UC-21 · Resposta volta ao usuário
 
 **Ator:** usuário. **Pré-condição:** um coordenador de categoria terminou.
@@ -851,6 +1048,10 @@ violação de R8. O encaminhamento é recusado e vira notificação.
 | NF-14 | Nunca encaminhar de volta à categoria que acabou de trabalhar (R8) | teste de contrato |
 | NF-15 | `mensagem_usuario` não nomeia agente, camada ou squad | teste sobre os exemplos |
 | NF-16 | `agent-coord-response` não declara `agents:` | estático — é o que mantém o grafo acíclico |
+| NF-17 | Todo squad tem exatamente um planner e um validator, ambos `required` | estático, em CI |
+| NF-18 | Planner e validator são agentes distintos | estático — quem planeja não aprova |
+| NF-19 | `revisao_n` nunca passa de 2 (R9) | teste de contrato |
+| NF-20 | Validador tem `temperature: 0.0` | estático — veredito que varia não é veredito |
 | NF-7 | Toda categoria acionável tem orquestrador e coordenador (R1) | estático, em CI |
 | NF-8 | Uma falha de especialista não perde a trilha da correlação | teste de falha |
 
@@ -871,6 +1072,9 @@ violação de R8. O encaminhamento é recusado e vira notificação.
 | Encaminhamento sem `contexto_handoff` | a próxima categoria recomeça do zero, e o pedido *parece* ter seguido | invariante da §5.6, verificada nos exemplos |
 | Parcial apresentado como sucesso | o usuário não tem como detectar | regra explícita na skill e no manifesto do responder |
 | Ping-pong entre categorias | pedido circula sem retorno a quem pediu | R7 (teto de 2) e R8 (não volta para quem acabou) |
+| Planner e validator colapsarem em um agente só | a premissa passa a ser lida por quem a formulou | NF-18; a separação é o mecanismo, não o processo |
+| Validador que sempre acha algo | o planner aprende a ignorá-lo | regra explícita: plano sem achados é resultado possível |
+| Validador que corrige em vez de julgar | passa a ter autoria e julga o próprio trabalho na rodada seguinte | regra explícita nos três validadores |
 
 ---
 
@@ -886,6 +1090,7 @@ violação de R8. O encaminhamento é recusado e vira notificação.
 | Correlação | **não existe** | atravessa todas as camadas |
 | Conversa multi-turno | **não existe** — hoje uma delegação é uma ida e volta | envelope de turno da §5.4, com teto e registro por turno |
 | Coordenador de resposta | **implementado** em `tribe/response`, chamado pelos três coordenadores | mantém; sob a taxonomia da §3.1 passa a `agent-coord-response` |
+| Planner e validator | **implementados** — um par por squad, seis agentes | mantêm; sob a taxonomia passam a `agent-spec-<categoria>-<papel>` |
 
 O `tribe/response` é a primeira parte deste desenho que existe em código. Ele
 foi implementável hoje porque não depende do traço nem do multi-turno: é um

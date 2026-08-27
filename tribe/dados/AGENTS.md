@@ -11,6 +11,18 @@ tags: ["dados", "pipeline", "qualidade", "tribe"]
 
 agents:
   - vendor: "tribe"
+    agent: "dados-planner"
+    version: "1.0.0"
+    role: "planner"
+    delegations: ["planejar"]
+    required: true
+  - vendor: "tribe"
+    agent: "dados-validator"
+    version: "1.0.0"
+    role: "validator"
+    delegations: ["validar-plano"]
+    required: true
+  - vendor: "tribe"
     agent: "response"
     version: "1.0.0"
     role: "coordenador-resposta"

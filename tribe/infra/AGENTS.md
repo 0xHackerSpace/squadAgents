@@ -11,6 +11,18 @@ tags: ["infraestrutura", "nuvem", "tribe"]
 
 agents:
   - vendor: "tribe"
+    agent: "infra-planner"
+    version: "1.0.0"
+    role: "planner"
+    delegations: ["planejar"]
+    required: true
+  - vendor: "tribe"
+    agent: "infra-validator"
+    version: "1.0.0"
+    role: "validator"
+    delegations: ["validar-plano"]
+    required: true
+  - vendor: "tribe"
     agent: "response"
     version: "1.0.0"
     role: "coordenador-resposta"

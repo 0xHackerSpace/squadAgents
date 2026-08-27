@@ -11,6 +11,18 @@ tags: ["suporte", "incidente", "tribe"]
 
 agents:
   - vendor: "tribe"
+    agent: "suporte-planner"
+    version: "1.0.0"
+    role: "planner"
+    delegations: ["planejar"]
+    required: true
+  - vendor: "tribe"
+    agent: "suporte-validator"
+    version: "1.0.0"
+    role: "validator"
+    delegations: ["validar-plano"]
+    required: true
+  - vendor: "tribe"
     agent: "response"
     version: "1.0.0"
     role: "coordenador-resposta"

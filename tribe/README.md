@@ -12,6 +12,14 @@ ao squad responsável.
 | `tribe/suporte` | `squad-suporte` | incidentes, dúvidas, acesso de pessoa, bugs |
 | `tribe/response` | `coordenador-resposta` | decide se a resposta volta ao usuário ou segue para outra categoria |
 
+Cada squad tem, obrigatoriamente, **um planner e um validator**:
+
+| Squad | Planner | Validator |
+|---|---|---|
+| `tribe/infra` | `tribe/infra-planner` | `tribe/infra-validator` |
+| `tribe/dados` | `tribe/dados-planner` | `tribe/dados-validator` |
+| `tribe/suporte` | `tribe/suporte-planner` | `tribe/suporte-validator` |
+
 ```mermaid
 flowchart TD
     U(["pedido do usuário"]) --> M["tribe/manager<br/>carrega a skill taxonomia"]
@@ -22,7 +30,11 @@ flowchart TD
     D -->|"tribe/infra"| I["Squad de Infraestrutura"]
     D -->|"tribe/dados"| DA["Squad de Dados"]
     D -->|"tribe/suporte"| S["Squad de Suporte"]
-    I & DA & S --> RC["tribe/response<br/>carrega politica-resposta"]
+
+    I & DA & S --> PL["planner da categoria<br/>emite o plano"]
+    PL --> VA["validator da categoria<br/>julga, não corrige"]
+    VA -->|"reprovado · até 2 revisões"| PL
+    VA -->|"aprovado ou com ressalvas"| RC["tribe/response<br/>carrega politica-resposta"]
     RC -->|"decisao: encaminhar<br/>nomeia a categoria, não a chama"| D
     RC -->|"decisao: notificar"| R["mensagem ao usuário"]
     P --> U
@@ -49,6 +61,40 @@ oaf validate tribe --profile strict
 oaf inspect  tribe/manager            # os três squads e seus papéis
 oaf inspect  tribe/manager --prompt   # o contrato JSON, como o agente o recebe
 ```
+
+## Planner e validator
+
+Todo squad planeja e julga o plano com **agentes distintos**, e essa é a decisão
+que sustenta a camada.
+
+| Papel | Recebe | Emite | Nunca faz |
+|---|---|---|---|
+| Planner | a demanda normalizada | plano com passos verificáveis | executar, ou aprovar o próprio plano |
+| Validator | o plano | veredito com achados | corrigir o plano, ou propor alternativa |
+
+**Por que dois e não um.** Um agente que planeja e se aprova racionaliza as
+próprias premissas: escolheu a região porque pareceu razoável, e ao revisar
+continua parecendo razoável pelo mesmo motivo. A separação é o que faz a
+premissa ser lida por quem não a formulou.
+
+É a mesma razão pela qual o validador **não corrige**. Quem reescreve o passo
+passa a ter autoria, e na rodada seguinte julga o próprio trabalho.
+
+**O laço tem teto:** até duas revisões. Na terceira reprovação o problema deixou
+de ser o plano — é a demanda, e o validador diz isso em vez de pedir um quarto
+plano.
+
+**Ressalva não reprova.** `aprovado_com_ressalvas` segue para execução com os
+achados leves junto; parar um plano executável por nomenclatura custa uma rodada
+e não compra nada.
+
+O que muda entre as categorias é o critério, e ele mora na skill do validador:
+
+| Categoria | O validador reprova por |
+|---|---|
+| `infra` | baseline de segurança, raio de alcance, reversibilidade |
+| `dados` | definição não estabelecida, backfill dito reversível, impacto a jusante omitido |
+| `suporte` | causa antes de contenção, confirmação sem limiar e janela, paliativo sem volta |
 
 ## O coordenador de resposta
 

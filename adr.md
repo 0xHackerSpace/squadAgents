@@ -666,7 +666,14 @@ abrir chamado, definir prioridade e acionar plantão a partir dele, não ler pro
 3. **Confiança baixa não é palpite.** Abaixo de `0.6` a classificação é
    `acionavel: false` e devolve lacunas. Um palpite manda o pedido ao squad
    errado, e custa uma rodada em dois times.
-4. **O encaminhamento é dado, não chamada.** Quando um squad termina, ele chama
+4. **Todo squad planeja e julga com agentes distintos.** Um planner emite o
+   plano; um validator o julga e **não o corrige**. Um agente que se aprova
+   racionaliza as próprias premissas — escolheu a região porque pareceu
+   razoável, e ao revisar continua parecendo, pelo mesmo motivo. Um validador
+   que reescreve o passo passa a ter autoria e, na rodada seguinte, julga o
+   próprio trabalho. O laço tem teto de duas revisões: na terceira reprovação o
+   problema deixou de ser o plano.
+5. **O encaminhamento é dado, não chamada.** Quando um squad termina, ele chama
    `tribe/response`, que decide entre notificar o usuário e encaminhar a outra
    categoria — e no segundo caso **nomeia** o destino em vez de chamá-lo. Se o
    responder declarasse os coordenadores em `agents:` enquanto eles o declaram,
@@ -828,7 +835,11 @@ flowchart TD
     D -->|"tribe/infra"| I["Squad de Infraestrutura"]
     D -->|"tribe/dados"| DA["Squad de Dados"]
     D -->|"tribe/suporte"| S["Squad de Suporte"]
-    I & DA & S --> RC["tribe/response<br/>carrega politica-resposta"]
+
+    I & DA & S --> PL["planner da categoria<br/>emite o plano"]
+    PL --> VA["validator da categoria<br/>julga, não corrige"]
+    VA -->|"reprovado · até 2 revisões"| PL
+    VA -->|"aprovado ou com ressalvas"| RC["tribe/response<br/>carrega politica-resposta"]
     RC -->|"decisao: encaminhar<br/>nomeia a categoria, não a chama"| D
     RC -->|"decisao: notificar"| R["mensagem ao usuário"]
     P --> U

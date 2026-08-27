@@ -27,6 +27,10 @@ pytestmark = pytest.mark.skipif(not TRIBE.is_dir(), reason="tribe/ not present")
 SQUADS = {"tribe/infra", "tribe/dados", "tribe/suporte"}
 RESPONSE = "tribe/response"
 
+#: Every squad must field these two roles. The requirement is the squad's shape,
+#: not a suggestion — a squad missing either fails to resolve.
+PAPEIS_OBRIGATORIOS = ("planner", "validator")
+
 
 @pytest.fixture(scope="module")
 def workspace():
@@ -46,10 +50,11 @@ def schema():
 # --- wiring ------------------------------------------------------------------
 
 
-def test_the_tribe_is_a_manager_three_squads_and_a_responder(workspace):
-    assert {a.canonical_slug for a in workspace.agents} == (
-        {"tribe/manager", RESPONSE} | SQUADS
-    )
+def test_the_tribe_holds_every_agent_its_shape_requires(workspace):
+    esperado = {"tribe/manager", RESPONSE} | SQUADS | {
+        f"{slug}-{papel}" for slug in SQUADS for papel in PAPEIS_OBRIGATORIOS
+    }
+    assert {a.canonical_slug for a in workspace.agents} == esperado
 
 
 def test_every_tribe_agent_passes_strict(workspace):
@@ -66,13 +71,96 @@ def test_the_manager_routes_to_all_three_squads(manager):
         assert sub.ref.required
 
 
+def test_every_squad_fields_a_planner_and_a_validator(workspace):
+    """The shape every squad must have, asserted per squad rather than in prose."""
+    for slug in SQUADS:
+        resolved = resolve_agent(workspace.get(slug), workspace=workspace)
+        por_papel = {s.ref.role: s for s in resolved.sub_agents}
+
+        for papel in PAPEIS_OBRIGATORIOS:
+            assert papel in por_papel, f"{slug} has no {papel}"
+            sub = por_papel[papel]
+            assert sub.resolved, f"{slug}'s {papel} does not resolve"
+            # A squad missing half its shape must fail, not quietly degrade.
+            assert sub.ref.required
+            assert sub.ref.slug == f"{slug}-{papel}"
+
+
+def test_the_planner_is_declared_before_the_validator(workspace):
+    """Order in `agents:` is the documented reading order: plan, then judge."""
+    for slug in SQUADS:
+        resolved = resolve_agent(workspace.get(slug), workspace=workspace)
+        papeis = [s.ref.role for s in resolved.sub_agents]
+        assert papeis == ["planner", "validator", "coordenador-resposta"], slug
+
+
 def test_every_squad_calls_the_response_coordinator(workspace):
     """A squad that finished has to hand the outcome somewhere."""
     for slug in SQUADS:
         resolved = resolve_agent(workspace.get(slug), workspace=workspace)
-        refs = [s.ref for s in resolved.sub_agents]
-        assert [r.slug for r in refs] == [RESPONSE], slug
-        assert refs[0].required
+        responder = next(s for s in resolved.sub_agents if s.ref.slug == RESPONSE)
+        assert responder.resolved
+        assert responder.ref.required
+
+
+def test_planners_and_validators_are_stateless_leaves(workspace):
+    """R6: a specialist holds no state, and does not delegate onward."""
+    for slug in SQUADS:
+        for papel in PAPEIS_OBRIGATORIOS:
+            agent = workspace.get(f"{slug}-{papel}")
+            assert agent.manifest.memory is None, f"{slug}-{papel} declares memory"
+            assert agent.manifest.agents == [], f"{slug}-{papel} delegates onward"
+
+
+def test_no_planner_or_validator_may_run_shell_commands(workspace):
+    for slug in SQUADS:
+        for papel in PAPEIS_OBRIGATORIOS:
+            manifest = workspace.get(f"{slug}-{papel}").manifest
+            assert "bash" in manifest.config.tools.denied
+
+
+def test_validators_judge_deterministically(workspace):
+    """A verdict that varies between runs is not a verdict."""
+    for slug in SQUADS:
+        assert workspace.get(f"{slug}-validator").manifest.config.temperature == 0.0
+
+
+def test_every_validator_carries_its_category_checklist(workspace):
+    """The domain knowledge lives in a skill, loaded on demand."""
+    for slug in SQUADS:
+        categoria = slug.split("/")[1]
+        resolved = resolve_agent(workspace.get(f"{slug}-validator"), workspace=workspace)
+        skill = next(s for s in resolved.skills if s.ref.name == f"checklist-{categoria}")
+        assert skill.ref.required
+        assert skill.local is not None
+
+
+def test_a_validator_does_not_rewrite_the_plan(workspace):
+    """Separation of powers: whoever plans does not approve their own plan.
+
+    Whitespace is normalized before matching — the phrase wraps across lines in
+    the manifests, and line wrapping is formatting, not behaviour.
+    """
+    import re
+
+    for slug in SQUADS:
+        prompt = build_system_prompt(
+            resolve_agent(workspace.get(f"{slug}-validator"), workspace=workspace)
+        )
+        assert "não corrijo o plano" in re.sub(r"\s+", " ", prompt).lower(), slug
+
+
+def test_a_planner_does_not_approve_its_own_plan(workspace):
+    """The other half of the same separation."""
+    import re
+
+    for slug in SQUADS:
+        prompt = build_system_prompt(
+            resolve_agent(workspace.get(f"{slug}-planner"), workspace=workspace)
+        )
+        normalizado = re.sub(r"\s+", " ", prompt).lower()
+        assert "não valido meu" in normalizado, slug
+        assert f"{slug}-validator" in normalizado, slug
 
 
 def test_the_response_coordinator_is_terminal(workspace):
@@ -249,10 +337,14 @@ def test_the_tribe_builds_as_one_agno_team(manager, monkeypatch):
     ]
     assert [getattr(t, "__name__", t) for t in built.agent.tools] == ["load_skill"]
 
-    # Each squad is itself a team, because it leads the response coordinator.
+    # Each squad is itself a team: planner, validator, responder.
     for member in built.agent.members:
         assert type(member).__name__ == "Team"
-        assert [m.name for m in member.members] == ["Coordenador de Resposta"]
+        assert len(member.members) == 3
+        nomes = [m.name for m in member.members]
+        assert any("Planner" in n for n in nomes), nomes
+        assert any("Validator" in n for n in nomes), nomes
+        assert nomes[-1] == "Coordenador de Resposta"
 
 
 def test_the_taxonomy_body_stays_out_of_the_initial_prompt(manager, monkeypatch):
