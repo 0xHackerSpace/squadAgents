@@ -5,7 +5,8 @@ validates, resolves and runs OAF agents, and exports them to other harnesses.
 
 Implements **OAF 0.8.0** (Draft). See [docs/CONFORMANCE.md](docs/CONFORMANCE.md)
 for exactly what is covered, what is deliberately not, and where the spec and the
-agents published alongside it disagree.
+agents published alongside it disagree, and [adr.md](adr.md) for the architecture
+and the decisions behind it.
 
 ## Setup
 
