@@ -9,6 +9,14 @@ author: "@0xhackerspace"
 license: "MIT"
 tags: ["suporte", "incidente", "tribe"]
 
+agents:
+  - vendor: "tribe"
+    agent: "response"
+    version: "1.0.0"
+    role: "coordenador-resposta"
+    delegations: ["notificar-usuario", "encaminhar-categoria"]
+    required: true
+
 model:
   provider: "openai"
   name: "gpt-5.2"

@@ -25,6 +25,7 @@ EXEMPLOS = SKILL / "resources" / "exemplos.md"
 pytestmark = pytest.mark.skipif(not TRIBE.is_dir(), reason="tribe/ not present")
 
 SQUADS = {"tribe/infra", "tribe/dados", "tribe/suporte"}
+RESPONSE = "tribe/response"
 
 
 @pytest.fixture(scope="module")
@@ -45,8 +46,10 @@ def schema():
 # --- wiring ------------------------------------------------------------------
 
 
-def test_the_tribe_is_a_manager_and_three_squads(workspace):
-    assert {a.canonical_slug for a in workspace.agents} == {"tribe/manager"} | SQUADS
+def test_the_tribe_is_a_manager_three_squads_and_a_responder(workspace):
+    assert {a.canonical_slug for a in workspace.agents} == (
+        {"tribe/manager", RESPONSE} | SQUADS
+    )
 
 
 def test_every_tribe_agent_passes_strict(workspace):
@@ -63,10 +66,53 @@ def test_the_manager_routes_to_all_three_squads(manager):
         assert sub.ref.required
 
 
-def test_the_squads_are_terminal(workspace):
-    """Only the manager delegates; a squad routing onward would loop the tribe."""
+def test_every_squad_calls_the_response_coordinator(workspace):
+    """A squad that finished has to hand the outcome somewhere."""
     for slug in SQUADS:
-        assert not resolve_agent(workspace.get(slug), workspace=workspace).sub_agents
+        resolved = resolve_agent(workspace.get(slug), workspace=workspace)
+        refs = [s.ref for s in resolved.sub_agents]
+        assert [r.slug for r in refs] == [RESPONSE], slug
+        assert refs[0].required
+
+
+def test_the_response_coordinator_is_terminal(workspace):
+    """This is what keeps the graph acyclic.
+
+    The responder names the next coordinator in its JSON; it does not call one.
+    Declaring `agents:` here while the squads declare it there would make the
+    pair mutual, and the resolver rejects that — see the test below.
+    """
+    responder = workspace.get(RESPONSE)
+    assert responder.manifest.agents == []
+    assert not resolve_agent(responder, workspace=workspace).sub_agents
+
+
+def test_a_mutual_reference_would_be_rejected(tmp_path, workspace):
+    """Pins the reason the responder is terminal, rather than asserting it."""
+    template = (TRIBE / "response" / "AGENTS.md").read_text(encoding="utf-8")
+    head, _, body = template.partition("\n---\n\n")
+
+    par = tmp_path / "response"
+    par.mkdir()
+    # Give the responder a reference back to a squad that already points at it.
+    (par / "AGENTS.md").write_text(
+        head.replace(
+            "model:\n  provider:",
+            'agents:\n  - vendor: "tribe"\n    agent: "infra"\n    version: "1.0.0"\n'
+            '    role: "volta"\n    required: true\n\nmodel:\n  provider:',
+            1,
+        )
+        + "\n---\n\n"
+        + body
+    )
+
+    mutuo = Workspace.from_path(tmp_path)
+    for agent in workspace.agents:
+        mutuo.add(agent)
+    mutuo.add(load_agent(par))
+
+    resolved = resolve_agent(mutuo.get("tribe/infra"), workspace=mutuo)
+    assert "agent.cycle" in {d.code for d in resolved.diagnostics.errors}
 
 
 def test_no_tribe_agent_may_run_shell_commands(workspace):
@@ -203,6 +249,11 @@ def test_the_tribe_builds_as_one_agno_team(manager, monkeypatch):
     ]
     assert [getattr(t, "__name__", t) for t in built.agent.tools] == ["load_skill"]
 
+    # Each squad is itself a team, because it leads the response coordinator.
+    for member in built.agent.members:
+        assert type(member).__name__ == "Team"
+        assert [m.name for m in member.members] == ["Coordenador de Resposta"]
+
 
 def test_the_taxonomy_body_stays_out_of_the_initial_prompt(manager, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -211,3 +262,95 @@ def test_the_taxonomy_body_stays_out_of_the_initial_prompt(manager, monkeypatch)
     assert "Fronteiras que confundem" not in built.system_prompt
     load_skill = next(t for t in built.agent.tools if t.__name__ == "load_skill")
     assert "Fronteiras que confundem" in load_skill("taxonomia")
+
+
+# --- the response coordinator's contract -------------------------------------
+
+RESP_SKILL = TRIBE / "response" / "skills" / "politica-resposta"
+RESP_EXEMPLOS = RESP_SKILL / "resources" / "exemplos.md"
+
+#: Every field the responder's JSON must carry.
+RESP_CAMPOS = {
+    "correlacao", "decisao", "destino", "handoff_n",
+    "motivo", "mensagem_usuario", "contexto_handoff",
+}
+MAX_HANDOFF = 2
+
+
+@pytest.fixture(scope="module")
+def responder(workspace):
+    return resolve_agent(workspace.get(RESPONSE), workspace=workspace)
+
+
+def _resp_examples() -> list[dict]:
+    import re
+
+    text = RESP_EXEMPLOS.read_text(encoding="utf-8")
+    return [json.loads(b) for b in re.findall(r"```json\n(.*?)\n```", text, re.S)]
+
+
+def test_the_responder_prompt_states_every_field(responder):
+    prompt = build_system_prompt(responder)
+    for field in RESP_CAMPOS:
+        assert field in prompt, f"the prompt never mentions {field!r}"
+    for decisao in ("notificar", "encaminhar"):
+        assert decisao in prompt
+
+
+def test_the_responder_carries_its_policy_skill(responder):
+    skill = next(s for s in responder.skills if s.ref.name == "politica-resposta")
+    assert skill.ref.required
+    assert skill.local is not None
+
+
+def test_the_policy_body_stays_out_of_the_initial_prompt(responder):
+    prompt = build_system_prompt(responder)
+    assert "politica-resposta" in prompt
+    assert "O limite de dois encaminhamentos" not in prompt
+
+
+def test_the_examples_cover_both_decisions():
+    examples = _resp_examples()
+    assert len(examples) >= 4
+    assert any(e["decisao"] == "notificar" for e in examples)
+    assert any(e["decisao"] == "encaminhar" for e in examples)
+    assert any(e["handoff_n"] == MAX_HANDOFF for e in examples), "no example at the limit"
+
+
+@pytest.mark.parametrize("example", _resp_examples(), ids=lambda e: e["decisao"])
+def test_each_response_example_matches_the_contract(example):
+    assert set(example) == RESP_CAMPOS
+    assert example["decisao"] in {"notificar", "encaminhar"}
+    assert 0 <= example["handoff_n"] <= MAX_HANDOFF
+    assert example["motivo"]
+
+
+@pytest.mark.parametrize("example", _resp_examples(), ids=lambda e: e["decisao"])
+def test_each_response_example_obeys_the_invariants(example):
+    if example["decisao"] == "notificar":
+        assert example["destino"] is None
+        assert example["contexto_handoff"] is None
+        assert example["mensagem_usuario"], "notifying with no message says nothing"
+    else:
+        assert example["destino"] in SQUADS
+        assert example["contexto_handoff"], "a handoff with no context restarts the work"
+        assert example["mensagem_usuario"] is None
+        # Handing off at the limit is exactly what the limit forbids.
+        assert example["handoff_n"] < MAX_HANDOFF
+
+
+def test_at_the_limit_the_example_notifies():
+    """The rule that stops a request circling between teams."""
+    no_limite = [e for e in _resp_examples() if e["handoff_n"] == MAX_HANDOFF]
+    assert no_limite
+    for example in no_limite:
+        assert example["decisao"] == "notificar"
+        assert example["mensagem_usuario"]
+
+
+def test_the_user_message_names_no_agent():
+    """The user does not know the tribe exists."""
+    for example in _resp_examples():
+        mensagem = example["mensagem_usuario"] or ""
+        for termo in ("agent-", "tribe/", "coordenador", "especialista", "squad"):
+            assert termo not in mensagem.lower(), f"{termo!r} leaked into a user message"

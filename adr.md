@@ -666,8 +666,13 @@ abrir chamado, definir prioridade e acionar plantão a partir dele, não ler pro
 3. **Confiança baixa não é palpite.** Abaixo de `0.6` a classificação é
    `acionavel: false` e devolve lacunas. Um palpite manda o pedido ao squad
    errado, e custa uma rodada em dois times.
-4. **Os squads são terminais.** Só o gerente delega. Um squad que roteasse
-   adiante fecharia ciclo na tribe.
+4. **O encaminhamento é dado, não chamada.** Quando um squad termina, ele chama
+   `tribe/response`, que decide entre notificar o usuário e encaminhar a outra
+   categoria — e no segundo caso **nomeia** o destino em vez de chamá-lo. Se o
+   responder declarasse os coordenadores em `agents:` enquanto eles o declaram,
+   o par vira referência mútua e o resolvedor reprova com `agent.cycle`
+   (ADR-009). O teto de dois encaminhamentos impede que um pedido circule entre
+   times sem retorno a quem pediu.
 
 **Alternativas descartadas.** Um classificador puro — sem sub-agentes, saída
 100% JSON — seria mais fácil de validar na borda, mas exigiria um segundo passo
@@ -810,7 +815,8 @@ carrega o **diretório pai** como workspace, então os irmãos ficam visíveis.
 
 ### 3.6 Triagem e roteamento na tribe
 
-O fluxo do ADR-017. Este diagrama também abre [`tribe/README.md`](tribe/README.md).
+O fluxo do ADR-017, já com o coordenador de resposta. Este diagrama também
+abre [`tribe/README.md`](tribe/README.md).
 
 ```mermaid
 flowchart TD
@@ -822,7 +828,9 @@ flowchart TD
     D -->|"tribe/infra"| I["Squad de Infraestrutura"]
     D -->|"tribe/dados"| DA["Squad de Dados"]
     D -->|"tribe/suporte"| S["Squad de Suporte"]
-    I & DA & S --> R["resposta do squad,<br/>abaixo do JSON"]
+    I & DA & S --> RC["tribe/response<br/>carrega politica-resposta"]
+    RC -->|"decisao: encaminhar<br/>nomeia a categoria, não a chama"| D
+    RC -->|"decisao: notificar"| R["mensagem ao usuário"]
     P --> U
     R --> U
 ```

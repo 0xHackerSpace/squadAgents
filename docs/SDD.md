@@ -49,10 +49,11 @@ flowchart TD
 
     G -->|"true · destino"| O1 & O2 & O3
 
-    subgraph camada3["3 · Coordenação — permanente, uma por categoria"]
+    subgraph camada3["3 · Coordenação — permanente"]
         C1["agent-coord-infra"]
         C2["agent-coord-dados"]
         C3["agent-coord-suporte"]
+        RC["agent-coord-response<br/>notificar ou encaminhar"]
     end
 
     O1 --> C1
@@ -73,8 +74,12 @@ flowchart TD
     C2 -.-> L
     C3 -.-> L
 
+    C1 & C2 & C3 --> RC
+    RC -->|"decisao: encaminhar<br/>nomeia o destino"| camada2
+    RC -->|"decisao: notificar"| R["resposta ao usuário"]
+
     X --> U
-    E1 & E2 & E3 --> R["resposta"] --> U
+    R --> U
 
     style camada2 stroke-dasharray:5 4
 ```
@@ -84,8 +89,12 @@ permanentes: existem como diretórios no disco e atendem muitos pedidos.
 
 As setas entre coordenação e especialistas são **bidirecionais**: o especialista
 não devolve só o resultado, ele conversa — pede esclarecimento, entrega parcial,
-declara bloqueio. As demais setas são de mão única: a triagem não volta a ser
-consultada, e o orquestrador não é reaberto depois de delegar.
+declara bloqueio.
+
+A seta de `agent-coord-response` de volta à camada 2 é o **encaminhamento**, e é
+a única que sobe. Repare que ela vai para o orquestrador, não direto para outro
+coordenador: o coordenador de resposta *nomeia* o destino, quem executa é quem
+conduz o pedido. A razão está na [§4.5](#45-coordenador-de-resposta--agent-coord-response).
 
 ---
 
@@ -225,6 +234,31 @@ ponto por onde passa tanto a entrada quanto todas as saídas de uma categoria.
 **Responsabilidade.** O trabalho concreto — e **conversar com o coordenador
 enquanto o faz**.
 
+#### Stateless
+
+O especialista não guarda nada entre invocações. Sua saída é função do envelope
+que recebeu e de mais nada.
+
+> **Invariante R6.** Especialista não declara `memory:` e não persiste estado.
+> Duas invocações com o mesmo envelope são independentes: nenhuma influencia a
+> outra.
+
+O estado que a conversa da [§5.4](#54-envelope-de-turno) precisa — o que já foi
+perguntado, o que já foi respondido — mora no **coordenador**, que reenvia o
+contexto necessário a cada turno. Isso é o que permite que o especialista seja
+substituído, replicado ou reiniciado no meio de uma interação sem perder nada.
+
+Repare na assimetria proposital das três camadas de baixo:
+
+| Camada | Estado | Onde vive |
+|---|---|---|
+| Orquestrador | efêmero, por pedido | nenhum — descartado ao fim (§4.2) |
+| Coordenador | permanente | a trilha de log, e o contexto da interação em curso |
+| Especialista | nenhum | — |
+
+O coordenador é o único que acumula. É por isso que ele é também o único que
+escreve log: quem tem o estado é quem pode contar a história.
+
 O especialista não é uma função que recebe entrada e devolve saída. Ele pode
 responder pedindo esclarecimento, entregando resultado parcial, ou declarando
 que está bloqueado. O coordenador responde, e a troca continua até um desfecho.
@@ -265,6 +299,45 @@ desfecho garantido.
 Consequência de desenho: a bidirecionalidade **não aparece no manifesto**. Ela é
 um contrato de mensagens ([§5.4](#54-envelope-de-turno)) mais um limite de
 turnos, ambos fora do que a spec do OAF sabe declarar.
+
+### 4.5 Coordenador de resposta — `agent-coord-response`
+
+**Responsabilidade.** Decidir o que acontece quando um coordenador de categoria
+termina: **a resposta volta ao usuário, ou outra categoria precisa agir?**
+
+É chamado pelo coordenador de categoria, nunca pelo orquestrador nem pela
+triagem. Recebe o desfecho — concluído, parcial ou bloqueado — e emite uma
+decisão ([§5.6](#56-decisão-de-resposta)).
+
+#### Nomeia o destino; não o chama
+
+Quando a decisão é `encaminhar`, o coordenador de resposta **nomeia** a categoria
+alvo. Quem executa o encaminhamento é quem conduz o pedido — o orquestrador
+efêmero da camada 2.
+
+A razão é a mesma da [§4.4](#44-especialista--agent-spec-categoria-especialidade):
+se ele declarasse os coordenadores em `agents:` enquanto eles o declaram, o par
+vira referência mútua e o resolvedor reprova com `agent.cycle`. Verificado no
+repositório — `tests/test_tribe.py::test_a_mutual_reference_would_be_rejected`
+constrói o par e confirma a rejeição, para que a razão fique registrada como
+teste e não como comentário.
+
+O encaminhamento é **dado que sobe**, não uma chamada que desce.
+
+#### Limite de encaminhamentos
+
+> **Invariante R7.** `handoff_n` nunca passa de 2. No segundo encaminhamento já
+> realizado, a decisão é obrigatoriamente `notificar`.
+
+Um pedido pode legitimamente atravessar duas categorias — provisionar e depois
+liberar acesso. Três é quase sempre sinal de que a triagem errou a categoria de
+origem, e o custo de continuar é um pedido circulando entre times sem ninguém
+dar retorno. No limite, a notificação diz o que ficou de fora e qual seria a
+próxima categoria; o usuário decide se abre pedido novo — o que também dá à
+triagem a chance de classificar melhor.
+
+> **Invariante R8.** Nunca encaminhar de volta para a categoria que acabou de
+> trabalhar. Ela devolveu porque terminou o que podia; devolver é laço.
 
 ---
 
@@ -461,6 +534,52 @@ que faz.
 Nenhum dos dois existe hoje no harness. O traço é a mudança de núcleo que este
 desenho exige; ver [§10](#10-delta-em-relação-ao-que-existe-hoje).
 
+### 5.6 Decisão de resposta
+
+O que o coordenador de resposta emite. **Implementado** em `tribe/response/`.
+
+```json
+{
+  "correlacao": "01JQ8F3K2M4N5P6Q7R8S9T0V1W",
+  "decisao": "encaminhar",
+  "destino": "tribe/dados",
+  "handoff_n": 0,
+  "motivo": "Recurso provisionado; configurar a escrita da pipeline é trabalho de dados",
+  "mensagem_usuario": null,
+  "contexto_handoff": {
+    "recurso": "s3://dev-checkout-artifacts",
+    "ja_feito": "Bucket criado, privado, versionado",
+    "pendente": "Apontar a pipeline de build para o novo bucket"
+  }
+}
+```
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `correlacao` | string | o pedido, inalterado |
+| `decisao` | string | `notificar` ou `encaminhar` |
+| `destino` | string ou null | o coordenador alvo quando `encaminhar` |
+| `handoff_n` | número | encaminhamentos já ocorridos nesta correlação (R7) |
+| `motivo` | string | por que esta decisão e não a outra |
+| `mensagem_usuario` | string ou null | o texto final quando `notificar` |
+| `contexto_handoff` | objeto ou null | o que a próxima categoria precisa saber |
+
+**Invariantes.** `notificar` → `destino` e `contexto_handoff` nulos, e
+`mensagem_usuario` não vazia. `encaminhar` → destino real, contexto não vazio,
+`mensagem_usuario` nula, e `handoff_n` abaixo do limite (R7).
+
+Um `contexto_handoff` vazio faria a próxima categoria recomeçar do zero — é a
+falha silenciosa desta camada, porque o pedido *parece* ter seguido.
+
+#### A mensagem ao usuário não nomeia agente
+
+O usuário não sabe que a tribe existe. `mensagem_usuario` não contém
+`agent-`, `tribe/`, "coordenador", "especialista" nem "squad" — verificado em
+`tests/test_tribe.py::test_the_user_message_names_no_agent`.
+
+E um parcial é apresentado como parcial. Maquiar um parcial de sucesso é a única
+forma de errar nesta camada que o usuário não consegue detectar.
+
 ---
 
 ## 6. Fluxo completo
@@ -530,6 +649,10 @@ sequenceDiagram
 | UC-18 | Especialista recusa por escopo e sugere quem atende | — | 3 ↔ 4 |
 | [UC-19](#uc-19--limite-de-turnos-esgotado) | Limite de turnos esgotado | — | 3 ↔ 4 |
 | UC-20 | Coordenador cancela uma interação em curso | — | 3 ↔ 4 |
+| [UC-21](#uc-21--resposta-volta-ao-usuário) | Resposta volta ao usuário | usuário | 3 → 1 |
+| [UC-22](#uc-22--encaminhamento-para-outra-categoria) | Encaminhamento para outra categoria | — | 3 → 2 → 3 |
+| [UC-23](#uc-23--limite-de-encaminhamentos-atingido) | Limite de encaminhamentos atingido | usuário | 3 |
+| UC-24 | Bloqueio que depende de humano vira notificação, não encaminhamento | usuário | 3 |
 
 ### UC-01 · Pedido acionável roteado e atendido
 
@@ -644,6 +767,55 @@ encerramento do coordenador **é** o envelope terminal.
 problema de limite, é tarefa mal definida chegando ao especialista. O lugar de
 corrigir é a interação anterior.
 
+### UC-21 · Resposta volta ao usuário
+
+**Ator:** usuário. **Pré-condição:** um coordenador de categoria terminou.
+
+1. O coordenador chama `agent-coord-response` com o desfecho.
+2. O coordenador de resposta decide `notificar`: o pedido original está atendido,
+   ou o que falta depende do usuário.
+3. Emite a decisão com `destino` e `contexto_handoff` nulos e a
+   `mensagem_usuario` escrita para quem não conhece a tribe.
+4. A mensagem chega ao usuário.
+
+**Pós-condição:** nenhum encaminhamento; `handoff_n` inalterado.
+
+**Regra que sustenta o caso:** um resultado parcial é apresentado **como
+parcial**. Maquiar parcial de sucesso é a única forma de errar nesta camada que
+o usuário não consegue detectar.
+
+### UC-22 · Encaminhamento para outra categoria
+
+**Ator:** nenhum humano. **Pré-condição:** `handoff_n` abaixo de 2 (R7).
+
+1. O coordenador de resposta decide `encaminhar`, nomeia o `destino` e monta o
+   `contexto_handoff` com o que já foi feito e o que falta.
+2. **Ele não chama o destino.** A decisão sobe para o orquestrador efêmero, que
+   conduz o pedido.
+3. O orquestrador incrementa `handoff_n` e delega ao coordenador nomeado, com a
+   mesma `correlacao`.
+4. O ciclo recomeça na camada 3, e a trilha continua na mesma correlação.
+
+**Pós-condição:** uma correlação, dois coordenadores, `handoff_n` incrementado.
+
+**Fluxo alternativo:** o destino nomeado é a categoria que acabou de trabalhar →
+violação de R8. O encaminhamento é recusado e vira notificação.
+
+### UC-23 · Limite de encaminhamentos atingido
+
+**Ator:** usuário. **Gatilho:** R7 — `handoff_n` já é 2.
+
+1. O coordenador de resposta identifica que outra categoria poderia contribuir.
+2. **Decide `notificar` mesmo assim**, com o `motivo` dizendo que o limite foi
+   atingido.
+3. A `mensagem_usuario` diz o que foi feito, o que ficou de fora, e que abrir um
+   pedido novo o leva direto ao time certo.
+
+**Pós-condição:** o pedido termina. Nenhuma correlação fica aberta circulando.
+
+**Leitura do sinal:** atingir o limite com frequência não é problema do limite —
+é a triagem errando a categoria de origem. O lugar de corrigir é a taxonomia.
+
 ### UC-10 · Nova categoria entra na tribe
 
 **Ator:** operador. Exemplo: acrescentar `seguranca`.
@@ -674,6 +846,11 @@ corrigir é a interação anterior.
 | NF-9 | Toda interação termina em no máximo `max_turnos` (R4) | teste de limite |
 | NF-10 | Turnos de uma interação são consecutivos, com um único terminal ao fim (R5) | teste de trilha |
 | NF-11 | Nenhuma referência mútua entre coordenador e especialista | `oaf validate` — o ciclo já reprova |
+| NF-12 | Especialista não declara `memory:` nem persiste estado (R6) | estático, no manifesto |
+| NF-13 | `handoff_n` nunca passa de 2 (R7) | teste de contrato |
+| NF-14 | Nunca encaminhar de volta à categoria que acabou de trabalhar (R8) | teste de contrato |
+| NF-15 | `mensagem_usuario` não nomeia agente, camada ou squad | teste sobre os exemplos |
+| NF-16 | `agent-coord-response` não declara `agents:` | estático — é o que mantém o grafo acíclico |
 | NF-7 | Toda categoria acionável tem orquestrador e coordenador (R1) | estático, em CI |
 | NF-8 | Uma falha de especialista não perde a trilha da correlação | teste de falha |
 
@@ -691,6 +868,9 @@ corrigir é a interação anterior.
 | Conversa coordenador ↔ especialista não converge | custo e latência sem desfecho | R4: teto de turnos, e só `esclarecimento` mantém a conversa aberta |
 | Tentar declarar a bidirecionalidade como `agents:` mútuo | o harness reprova com `agent.cycle` | está documentado na §4.4; a conversa é protocolo, não topologia |
 | Coordenador responde um esclarecimento inventando o valor | palpite vira decisão, três camadas longe de quem sabe | UC-15 passo 3: sem a informação, devolve a pendência |
+| Encaminhamento sem `contexto_handoff` | a próxima categoria recomeça do zero, e o pedido *parece* ter seguido | invariante da §5.6, verificada nos exemplos |
+| Parcial apresentado como sucesso | o usuário não tem como detectar | regra explícita na skill e no manifesto do responder |
+| Ping-pong entre categorias | pedido circula sem retorno a quem pediu | R7 (teto de 2) e R8 (não volta para quem acabou) |
 
 ---
 
@@ -705,6 +885,11 @@ corrigir é a interação anterior.
 | Log | **não existe** | contrato da §5.3, mais o traço de harness da §5.5 |
 | Correlação | **não existe** | atravessa todas as camadas |
 | Conversa multi-turno | **não existe** — hoje uma delegação é uma ida e volta | envelope de turno da §5.4, com teto e registro por turno |
+| Coordenador de resposta | **implementado** em `tribe/response`, chamado pelos três coordenadores | mantém; sob a taxonomia da §3.1 passa a `agent-coord-response` |
+
+O `tribe/response` é a primeira parte deste desenho que existe em código. Ele
+foi implementável hoje porque não depende do traço nem do multi-turno: é um
+agente que emite uma decisão, e a decisão é dado.
 
 **Mudança de núcleo exigida.** O traço do harness (§5.5) não é configuração: é
 funcionalidade nova em `src/oaf/runtime/`. Hoje o `BuildResult` carrega as

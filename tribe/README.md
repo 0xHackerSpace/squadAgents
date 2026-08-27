@@ -10,6 +10,7 @@ ao squad responsável.
 | `tribe/infra` | `squad-infraestrutura` | provisionamento, rede, acesso de máquina, custo |
 | `tribe/dados` | `squad-dados` | pipelines, qualidade, modelagem, relatórios |
 | `tribe/suporte` | `squad-suporte` | incidentes, dúvidas, acesso de pessoa, bugs |
+| `tribe/response` | `coordenador-resposta` | decide se a resposta volta ao usuário ou segue para outra categoria |
 
 ```mermaid
 flowchart TD
@@ -21,7 +22,9 @@ flowchart TD
     D -->|"tribe/infra"| I["Squad de Infraestrutura"]
     D -->|"tribe/dados"| DA["Squad de Dados"]
     D -->|"tribe/suporte"| S["Squad de Suporte"]
-    I & DA & S --> R["resposta do squad,<br/>abaixo do JSON"]
+    I & DA & S --> RC["tribe/response<br/>carrega politica-resposta"]
+    RC -->|"decisao: encaminhar<br/>nomeia a categoria, não a chama"| D
+    RC -->|"decisao: notificar"| R["mensagem ao usuário"]
     P --> U
     R --> U
 ```
@@ -46,6 +49,41 @@ oaf validate tribe --profile strict
 oaf inspect  tribe/manager            # os três squads e seus papéis
 oaf inspect  tribe/manager --prompt   # o contrato JSON, como o agente o recebe
 ```
+
+## O coordenador de resposta
+
+Quando um squad termina — concluído, parcial ou bloqueado — ele chama
+`tribe/response`, que decide uma coisa só: **isto volta ao usuário, ou outra
+categoria precisa agir?**
+
+```json
+{
+  "correlacao": "01JQ8F3K2M4N5P6Q7R8S9T0V1W",
+  "decisao": "encaminhar",
+  "destino": "tribe/dados",
+  "handoff_n": 0,
+  "motivo": "Recurso provisionado; configurar a escrita da pipeline é trabalho de dados",
+  "mensagem_usuario": null,
+  "contexto_handoff": { "ja_feito": "...", "pendente": "..." }
+}
+```
+
+**Ele nomeia o destino; não o chama.** Se `tribe/response` declarasse os
+coordenadores em `agents:` enquanto eles o declaram, o par vira referência mútua
+e o harness reprova com `agent.cycle` — corretamente, porque referência mútua
+afirma que os dois se delegam sem fim. O encaminhamento é dado que sobe, não
+chamada que desce. Há um teste que constrói o par e confirma a rejeição.
+
+| Regra | Consequência |
+|---|---|
+| `notificar` | `destino` e `contexto_handoff` nulos; `mensagem_usuario` não vazia |
+| `encaminhar` | destino real, contexto não vazio, `mensagem_usuario` nula |
+| `handoff_n` chegou a 2 | obrigatoriamente `notificar`, dizendo o que ficou de fora |
+| — | nunca encaminhar de volta para a categoria que acabou de trabalhar |
+
+A `mensagem_usuario` não nomeia agente, camada nem squad: o usuário não sabe que
+a tribe existe. E um parcial é apresentado **como parcial** — maquiar parcial de
+sucesso é a única forma de errar aqui que o usuário não consegue detectar.
 
 ## O contrato JSON
 
@@ -115,12 +153,13 @@ camadas: a triagem passa a rotear para **orquestradores efêmeros**
 recebem e tudo o que acionam, e que por sua vez chamam **especialistas**
 (`agent-spec-<categoria>-<especialidade>`).
 
-Os especialistas conversam **bidirecionalmente** com os coordenadores: podem
-pedir esclarecimento, entregar parcial ou declarar bloqueio, em turnos com teto.
-Isso é contrato de mensagens, não referência mútua no manifesto — declarar
-`agents:` nos dois lados faz o harness reprovar com `agent.cycle`.
+Os especialistas — camada que ainda não existe — são **stateless** e conversam
+**bidirecionalmente** com os coordenadores: podem pedir esclarecimento, entregar
+parcial ou declarar bloqueio, em turnos com teto. Isso é contrato de mensagens,
+não referência mútua no manifesto: declarar `agents:` nos dois lados faz o
+harness reprovar com `agent.cycle`.
 
-É proposta, não implementação. Os três squads deste diretório são hoje terminais.
+O `tribe/response` já é a primeira peça desse desenho em código.
 
 ## Adaptando
 
