@@ -820,6 +820,74 @@ sequenceDiagram
 O `Workspace` é o que faz a delegação funcionar: `oaf run squad/orchestrador`
 carrega o **diretório pai** como workspace, então os irmãos ficam visíveis.
 
+### 3.7 A tribe como está construída
+
+Onze agentes. Diferente da §3.6, que mostra o fluxo, este mostra a **topologia**:
+quem delega a quem, com os nomes reais. Conferido contra o grafo que
+`resolve_agent` produz — não desenhado à mão.
+
+```mermaid
+flowchart TD
+    U(["pedido do usuário"]) --> M
+
+    M["<b>tribe/manager</b><br/>triagem · Team<br/>skill: taxonomia"]
+    M --> J[/"classificação JSON<br/>categoria · destino · prioridade<br/>confiança · acionável · lacunas"/]
+    J -->|"acionavel: false"| X["devolve as lacunas<br/>nenhum squad é acionado"]
+
+    subgraph SI["squad de infraestrutura"]
+        direction TB
+        CI["<b>tribe/infra</b><br/>coordenador · Team"]
+        PI["tribe/infra-planner"]
+        VI["tribe/infra-validator<br/>skill: checklist-infra"]
+        CI --> PI
+        PI -.->|"plano"| VI
+        VI -.->|"reprovado ≤ 2×"| PI
+    end
+
+    subgraph SD["squad de dados"]
+        direction TB
+        CD["<b>tribe/dados</b><br/>coordenador · Team"]
+        PD["tribe/dados-planner"]
+        VD["tribe/dados-validator<br/>skill: checklist-dados"]
+        CD --> PD
+        PD -.->|"plano"| VD
+        VD -.->|"reprovado ≤ 2×"| PD
+    end
+
+    subgraph SS["squad de suporte"]
+        direction TB
+        CS["<b>tribe/suporte</b><br/>coordenador · Team"]
+        PS["tribe/suporte-planner"]
+        VS["tribe/suporte-validator<br/>skill: checklist-suporte"]
+        CS --> PS
+        PS -.->|"plano"| VS
+        VS -.->|"reprovado ≤ 2×"| PS
+    end
+
+    J -->|"tribe/infra"| CI
+    J -->|"tribe/dados"| CD
+    J -->|"tribe/suporte"| CS
+
+    VI & VD & VS -->|"aprovado"| R
+    R["<b>tribe/response</b><br/>uma definição, três chamadores<br/>skill: politica-resposta"]
+    R -->|"decisao: encaminhar<br/>nomeia o destino, não o chama"| J
+    R -->|"decisao: notificar"| N["mensagem ao usuário"]
+
+    X --> U
+    N --> U
+```
+
+Três coisas que o desenho torna visíveis e a prosa não:
+
+- **Os três squads têm forma idêntica.** Coordenador, planner, validator,
+  response. A repetição é a especificação (ADR-017, item 4): um squad sem planner
+  ou sem validator não resolve, porque ambos são `required`.
+- **`tribe/response` é uma definição, três chamadores.** Aparece uma vez porque é
+  um diretório só — cada coordenador o instancia ao construir.
+- **A seta de `encaminhar` sobe.** Ela volta à classificação em vez de ir direto
+  a outro coordenador, porque o responder nomeia o destino sem chamá-lo. Fosse
+  uma chamada, o par seria mútuo e o resolvedor reprovaria (ADR-009).
+
 ### 3.6 Triagem e roteamento na tribe
 
 O fluxo do ADR-017, já com o coordenador de resposta. Este diagrama também
