@@ -5,9 +5,33 @@
 **Status:** aceito e implementado
 **Última revisão:** 2026-08-27
 
-Este documento registra *por que* o harness tem a forma que tem. Para *o que* ele
-cobre da spec e o que deixa de fora deliberadamente, veja
-[`docs/CONFORMANCE.md`](docs/CONFORMANCE.md).
+Este documento registra *por que* o harness tem a forma que tem, e reúne todos os
+diagramas de fluxo do projeto. Para *o que* ele cobre da spec e o que deixa de
+fora deliberadamente, veja [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md).
+
+## Índice
+
+| ADR | Decisão |
+|---|---|
+| [001](#adr-001--o-carregamento-lê-a-validação-julga) | O carregamento lê; a validação julga |
+| [002](#adr-002--diagnóstico-é-dado-não-exceção) | Diagnóstico é dado, não exceção |
+| [003](#adr-003--dois-perfis-de-validação-não-um) | Dois perfis de validação, não um |
+| [004](#adr-004--leitura-permissiva-escrita-canônica) | Leitura permissiva, escrita canônica |
+| [005](#adr-005--adapters-de-harness-plugáveis-com-import-tardio) | Adapters de harness plugáveis, com import tardio |
+| [006](#adr-006--sub-agentes-viram-um-team-cada-um-com-seu-próprio-modelo) | Sub-agentes viram um Team, cada um com seu modelo |
+| [007](#adr-007--skills-carregam-progressivamente-via-tool) | Skills carregam progressivamente, via tool |
+| [008](#adr-008--a-tabela-de-aliases-de-modelo-é-dado-não-lógica) | A tabela de aliases é dado, não lógica |
+| [009](#adr-009--ciclos-e-ambiguidades-são-reportados-nunca-adivinhados) | Ciclos e ambiguidades são reportados, nunca adivinhados |
+| [010](#adr-010--duas-capacidades-ficaram-de-fora-e-isso-é-uma-decisão) | Duas capacidades ficaram de fora, e isso é uma decisão |
+| [011](#adr-011--export-é-lossy-e-diz-o-que-perdeu) | Export é lossy, e diz o que perdeu |
+| [012](#adr-012--fixtures-são-a-spec-o-corpus-real-é-a-realidade) | Fixtures são a spec; o corpus real é a realidade |
+| [013](#adr-013--o-contrato-da-linha-de-comando) | O contrato da linha de comando |
+| [014](#adr-014--documentação-é-travada-por-teste) | Documentação é travada por teste |
+| [015](#adr-015--três-camadas-de-exemplo-com-públicos-diferentes) | Três camadas de exemplo, com públicos diferentes |
+| [016](#adr-016--no-squad-o-portão-vem-antes-do-gerador) | No squad, o portão vem antes do gerador |
+
+Os diagramas estão distribuídos pelos ADRs que os justificam; a
+[seção 3](#3-fluxos-completos) reúne os cinco fluxos completos.
 
 ---
 
@@ -32,6 +56,13 @@ Duas restrições moldaram tudo o que segue:
 
 Essa tensão — *ler o mundo real, escrever o formato correto* — é a decisão de
 fundo que aparece em quase todos os ADRs abaixo.
+
+> **Nota de proveniência.** `openagentformat.com` está bloqueado pela política de
+> egresso deste ambiente. A spec foi lida do repositório que a publica
+> (`jeffrschneider/OpenAgentFormat`, cujo `docs/CNAME` aponta para o domínio), e
+> o corpus de referência veio do `OpenHarness`, do mesmo autor. É por isso que
+> `CONFORMANCE.md` fala em "agentes de referência" com tanta especificidade: eles
+> são arquivos reais, não hipóteses.
 
 ---
 
@@ -470,7 +501,147 @@ prova pouco.
 
 **Consequências.**
 - Se a spec evoluir e o corpus for corrigido, o teste de corpus quebra — e deve mesmo.
-- 77 testes hoje, rodando em ~3s, sem rede e sem chave de API.
+- A suíte roda sem rede e sem chave de API — parsing, validação, resolução,
+  packaging, export e construção de agente, tudo offline.
+- A terceira camada, a galeria de exemplos, veio depois e está no ADR-015.
+
+---
+
+## ADR-013 — O contrato da linha de comando
+
+**Contexto.** O harness é rodado por gente e por CI. Um CLI que mistura resultado
+com aviso na mesma saída, ou que usa o mesmo código de erro para "seu agente
+reprovou" e "você digitou o comando errado", é inútil dentro de um script.
+
+**Decisão.** Três compromissos, iguais em todos os comandos:
+
+1. **Três códigos de saída, com significados distintos.** `0` sucesso; `1` falha
+   de conteúdo — validação reprovou, agente não encontrado, arquivo ilegível,
+   execução falhou; `2` uso incorreto — comando ausente, desconhecido, argumento
+   obrigatório faltando. **Aviso nunca afeta o código de saída.**
+2. **stdout carrega o resultado; stderr carrega notas, avisos e erros.** É o que
+   torna `oaf inspect X --json > def.json` seguro em pipe, mesmo quando o agente
+   emite avisos.
+3. **`oaf run` valida antes de construir qualquer coisa**, no perfil `lenient`, e
+   **recusa executar** se houver erro. Não há flag para desligar.
+
+**Consequências.**
+- `oaf validate squad --profile strict --quiet || exit 1` é um portão de CI completo.
+- Rodar um agente com definição quebrada produziria comportamento inexplicável, e
+  gastaria tokens fazendo isso. Para inspecionar um agente quebrado sem executá-lo
+  existe `oaf inspect`, que funciona em agente inválido por construção (ADR-001).
+- Onde há `--json`, ele **substitui** a saída humana inteira em vez de acrescentar.
+  `--prompt` vence `--json`: pedir os dois imprime o prompt.
+
+```mermaid
+flowchart TD
+    C["oaf COMANDO ..."] --> P{"argparse"}
+    P -->|"comando ausente<br/>ou desconhecido<br/>ou falta obrigatório"| E2["exit 2<br/>uso incorreto"]
+    P -->|"ok"| H["handler do comando"]
+    H --> R{"resultado"}
+    R -->|"tudo certo"| E0["exit 0"]
+    R -->|"validação reprovou · agente ausente<br/>arquivo ilegível · execução falhou"| E1["exit 1<br/>falha de conteúdo"]
+    H -.->|"notas, avisos, erros"| SE[["stderr<br/>nunca afeta o código"]]
+    R -.->|"resultado, JSON, prompt"| SO[["stdout"]]
+```
+
+---
+
+## ADR-014 — Documentação é travada por teste
+
+**Contexto.** `docs/CLI.md` é escrito à mão. Nada impede que uma flag nova seja
+adicionada sem entrar na referência, ou que um default mude e a doc siga
+afirmando o antigo. Documentação que mente é pior que documentação ausente,
+porque é seguida.
+
+**Decisão.** Onde uma doc afirma algo verificável, um teste verifica.
+
+- `tests/test_cli_docs.py` **introspecciona o argparse** e exige: todo subcomando
+  tem seção, todo argumento tem texto de ajuda, toda flag, posicional e valor de
+  `choices` aparece na referência, os defaults documentados batem com o parser, e
+  os códigos de saída estão listados.
+- `tests/test_example_agents.py` fixa cada afirmação do índice da galeria — que o
+  exemplo mínimo é um arquivo só, que os dois formatos de instrução estão de fato
+  demonstrados, que o corpo da skill fica fora do prompt `progressive`.
+- `tests/test_squad.py` fixa o cabeamento descrito em `docs/USE_CASE.md`.
+
+**Prática que acompanha a decisão:** um guarda de divergência é verificado
+*quebrando-o de propósito*. O de CLI foi checado adicionando uma flag sem ajuda e
+outra não documentada, e confirmando que a suíte fica vermelha. Guarda que nunca
+falha não guarda nada.
+
+**Consequências.**
+- Escrever a referência de CLI expôs um defeito real: **onze argumentos não tinham
+  texto de ajuda nenhum**. O teste que impede a regressão nasceu junto com a
+  correção.
+- Uma afirmação verificada pelo motivo errado é tão ruim quanto uma não
+  verificada. A primeira sonda do teste de progressive disclosure buscava uma
+  frase que também abria a *descrição* da skill, e casava sem que o corpo
+  estivesse no prompt. A sonda hoje usa texto que só existe no corpo.
+- O custo: a doc não pode ser reorganizada livremente sem olhar os testes.
+
+---
+
+## ADR-015 — Três camadas de exemplo, com públicos diferentes
+
+**Contexto.** ADR-012 estabeleceu as duas camadas de *teste*. Exemplo é outra
+coisa: fixture de teste é escrito para cobrir regra, não para ser copiado.
+`full-featured` usa vendor falso e um `template.csv` sem conteúdo — copiá-lo
+como ponto de partida seria péssimo conselho, e ele está enterrado em `tests/`.
+
+**Decisão.** Três camadas, cada uma com um público:
+
+| Camada | Onde | Para quem | Critério |
+|---|---|---|---|
+| Fixtures | `tests/fixtures/` | a suíte | uma por regra; inclui os inválidos |
+| Galeria | `examples/agents/` | quem vai escrever um agente | um recurso do formato por exemplo, real e copiável |
+| Caso de uso | `squad/` | quem vai montar um time | um fluxo completo, ponta a ponta |
+
+A galeria existe porque nada fora dos fixtures exercitava `mcpServers`, `memory`,
+`versions/` ou um `harnessConfig` completo — e fixture não é material didático.
+
+**Consequências.**
+- Os seis exemplos da galeria passam em `--profile strict`, não só em `lenient`:
+  são copiados como ponto de partida, então precisam ser exemplares.
+- Redundância aceita: `minimal` existe como fixture e `01-revisor-pr` como
+  exemplo. Servem a propósitos diferentes e mudam por motivos diferentes.
+
+---
+
+## ADR-016 — No squad, o portão vem antes do gerador
+
+Decisões do fluxo em `squad/`. Ele é **consumidor** do harness, não parte dele —
+a arquitetura dos ADRs anteriores não pressupõe nada sobre este fluxo — mas as
+escolhas aqui são de arquitetura e pertencem a este registro.
+
+**Contexto.** Um pedido de infraestrutura em linguagem natural quase nunca chega
+completo. Falta região, ambiente, exposição de rede. Um squad que gera primeiro e
+valida depois produz HCL sobre premissa inventada.
+
+**Decisão.**
+
+1. **O validador julga a demanda, não o código, e roda primeiro.** O orquestrador
+   sempre delega ao portão antes de acionar o gerador, e passa o pedido
+   *inalterado*. Só o veredito `APROVADA` libera a geração; `INCOMPLETA` e
+   `RECUSADA` param o fluxo sem mostrar HCL parcial.
+2. **Ambos os membros são `required: true`.** Um membro ausente falha alto, em vez
+   de degradar em silêncio para um fluxo de um agente só que pula a validação.
+3. **A política mora em Markdown, não em código.** As regras que produzem recusa
+   estão no `SKILL.md` do validador. Mudar política é editar um arquivo.
+4. **Nenhum agente pode `bash`.** Nada no squad aplica infraestrutura: sem
+   `plan`, sem `apply`, sem credencial de nuvem. O que sai é código para revisão
+   humana.
+
+**Consequências.**
+- Perguntar antes custa uma rodada. Gerar em cima de pedido ambíguo custa um
+  recurso errado provisionado, ou uma revisão humana gasta em algo que nunca
+  deveria ter sido escrito.
+- O gerador carrega a mesma barreira do lado dele: se a demanda parecer exigir
+  `0.0.0.0/0` em ingress, ele para e devolve ao validador. Duas barreiras, de
+  propósito.
+- Os três usam o mesmo provedor hoje para que **uma** chave rode tudo. O harness
+  não exige isso (ADR-006): trocar o bloco `model:` de cada `AGENTS.md` já dá
+  modelos diferentes por agente.
 
 ---
 
@@ -548,6 +719,51 @@ flowchart LR
 `extract_package` recusa membros com caminho absoluto ou `..` antes de extrair
 qualquer coisa — um zip é conteúdo de terceiro.
 
+### 3.4 O fluxo do squad, e os três caminhos
+
+O fluxo que o ADR-016 descreve, com os três desfechos possíveis. Este diagrama
+também abre [`docs/USE_CASE.md`](docs/USE_CASE.md).
+
+```mermaid
+flowchart TD
+    U(["pedido do usuário<br/>em linguagem natural"]) --> O["squad/orchestrador"]
+    O -->|"1. delega o pedido inalterado"| V["squad/validador<br/>carrega demanda-checklist"]
+    V --> D{"veredito"}
+    D -->|"RECUSADA"| R["para · motivo em uma frase<br/>+ alternativa que passaria na política"]
+    D -->|"INCOMPLETA"| Q["para · até 3 perguntas objetivas<br/>nenhum HCL é mostrado"]
+    D -->|"APROVADA"| N["demanda normalizada"]
+    N -->|"2. delega a demanda normalizada,<br/>nunca o texto original"| T["squad/terraform<br/>carrega hcl-conventions"]
+    T --> S["main.tf · variables.tf<br/>outputs.tf · versions.tf<br/>+ decisões + antes de aplicar"]
+    R --> U
+    Q --> U
+    S --> U
+```
+
+### 3.5 Como o squad vira um Team
+
+A recursão do ADR-006 aplicada a um caso concreto: o `agents:` do orquestrador
+vira um `Team`, e cada membro é construído pelo mesmo `build()`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CLI as oaf run
+    participant WS as Workspace(squad/)
+    participant B as AgnoAdapter.build
+    participant TM as agno.Team
+
+    CLI->>WS: descobre os 3 agentes irmãos
+    CLI->>B: build(orchestrador resolvido)
+    B->>B: build(validador) → Agent + tool load_skill
+    B->>B: build(terraform) → Agent + tool load_skill
+    B->>TM: Team(líder=orchestrador, members=[validador, terraform])
+    Note over TM: cada worker carrega sua skill<br/>sob demanda, não no prompt inicial
+    CLI->>TM: run(demanda)
+```
+
+O `Workspace` é o que faz a delegação funcionar: `oaf run squad/orchestrador`
+carrega o **diretório pai** como workspace, então os irmãos ficam visíveis.
+
 ---
 
 ## 4. Decisões menores, registradas
@@ -560,16 +776,40 @@ qualquer coisa — um zip é conteúdo de terceiro.
 | Números coeridos para texto antes de validar | `version: 1.0` chega como `float` e viraria `"1.0"` silenciosamente |
 | SPDX como conjunto de reconhecimento, não portão | a lista completa tem ~600 entradas; desconhecido vira aviso |
 | `Workspace` indexa por slug canônico, slug do arquivo e `agentKey` | agentes reais discordam sobre qual usar (ver ADR-009 para o limite disso) |
+| `--prompt` vence `--json` no `inspect` | pedir os dois só faz sentido querendo o prompt |
+| `--mode referenced` hoje só grava o campo | o harness não busca skills well-known (ADR-010); com skills locais os dois modos produzem o mesmo conteúdo |
+| Metavars legíveis no CLI (`PATH`, `FILE`, `DIR`) | o default do argparse grita o `dest`, e `DESTINATION` não diz que é diretório |
+| Sub-agentes exportam um comando cada | nenhum formato de destino carrega delegação (ADR-011) |
 
 ---
 
 ## 5. O que este documento não decide
 
-O squad em `squad/` é **consumidor** deste harness, não parte dele: a arquitetura
-acima não pressupõe nada sobre o fluxo entre aqueles três agentes. As decisões de
-projeto *daquele* fluxo — validar antes de gerar, o portão poder parar, política
-morando em Markdown e não em código — estão em
-[`docs/USE_CASE.md`](docs/USE_CASE.md).
+**Como um servidor MCP é conectado.** O ADR-010 registra por que não é feito
+aqui, não como fazer. Quem for implementar precisa decidir de quem é o ciclo de
+vida da sessão, e isso muda conforme o harness hospedeiro.
 
-Os arquivos vazios que antes ocupavam `src/agents/` foram removidos: eram
-placeholders para agentes que agora existem de verdade, como definições OAF.
+**O que é um weblet em runtime.** A spec define os campos e os três modos de
+launch, e para aí. Não dá para decidir a implementação sem que o formato decida o
+conceito.
+
+**Qual passo instala uma skill well-known.** O ADR-010 diz que buscar instrução
+remota pertence a um passo explícito e auditável. Qual é esse passo — comando
+próprio, verificação de assinatura, cache local — está em aberto.
+
+**Se o harness deve implementar a OpenHarness API.** O `OpenHarness`, do mesmo
+autor da spec, define uma API REST de harness em 4056 linhas. É a camada natural
+acima desta, e nada aqui a impede — os adapters do ADR-005 já são a fronteira
+certa. Mas é escopo próprio, e merece o seu próprio ADR quando for encarado.
+
+---
+
+## 6. Onde está cada coisa
+
+| Documento | Responde |
+|---|---|
+| `adr.md` (este) | por que a arquitetura é assim; todos os fluxos |
+| [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) | o que da spec está coberto, e onde spec e realidade divergem |
+| [`docs/CLI.md`](docs/CLI.md) | todo argumento, código de saída e variável de ambiente |
+| [`docs/USE_CASE.md`](docs/USE_CASE.md) | como rodar o squad, com os três desfechos |
+| [`examples/agents/README.md`](examples/agents/README.md) | um exemplo por recurso do formato |
