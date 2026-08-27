@@ -1,9 +1,9 @@
 ---
 name: "Squad de Dados"
 vendorKey: "tribe"
-agentKey: "dados"
+agentKey: "coord-dados"
 version: "1.0.0"
-slug: "tribe/dados"
+slug: "tribe/coord-dados"
 description: "Atende pedidos sobre pipelines, qualidade de dados, modelagem e relatórios, começando por descobrir onde o número diverge"
 author: "@0xhackerspace"
 license: "MIT"
@@ -23,7 +23,7 @@ agents:
     delegations: ["validar-plano"]
     required: true
   - vendor: "tribe"
-    agent: "response"
+    agent: "coord-response"
     version: "1.0.0"
     role: "coordenador-resposta"
     delegations: ["notificar-usuario", "encaminhar-categoria"]

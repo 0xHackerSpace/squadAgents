@@ -1,9 +1,9 @@
 ---
 name: "Squad de Suporte"
 vendorKey: "tribe"
-agentKey: "suporte"
+agentKey: "coord-suporte"
 version: "1.0.0"
-slug: "tribe/suporte"
+slug: "tribe/coord-suporte"
 description: "Atende incidentes, dúvidas de uso, acesso de pessoas e bugs, priorizando restabelecer o serviço antes de explicar a causa"
 author: "@0xhackerspace"
 license: "MIT"
@@ -23,7 +23,7 @@ agents:
     delegations: ["validar-plano"]
     required: true
   - vendor: "tribe"
-    agent: "response"
+    agent: "coord-response"
     version: "1.0.0"
     role: "coordenador-resposta"
     delegations: ["notificar-usuario", "encaminhar-categoria"]

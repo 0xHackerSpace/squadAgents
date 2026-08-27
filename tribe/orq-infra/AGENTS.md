@@ -11,7 +11,7 @@ tags: ["infraestrutura", "orquestracao", "efemero"]
 
 agents:
   - vendor: "tribe"
-    agent: "infra"
+    agent: "coord-infra"
     version: "1.0.0"
     role: "coordenador"
     delegations: ["atender-demanda"]
@@ -37,7 +37,7 @@ que o coordenador responde.
 
 ## Política da categoria
 
-É por isso que existo, e não por simetria. Antes de acionar `tribe/infra`,
+É por isso que existo, e não por simetria. Antes de acionar `tribe/coord-infra`,
 verifico três coisas que a triagem não verifica:
 
 | Verificação | Se falhar |
@@ -53,11 +53,11 @@ recebe. Política é o que carrego, não trabalho que faço.
 
 1. Recebo o envelope da triagem, com `correlacao`, `resumo` e `prioridade`.
 2. Aplico a política acima, enriquecendo o envelope.
-3. Delego a `tribe/infra` com o `resumo` normalizado — **nunca** o texto original
+3. Delego a `tribe/coord-infra` com o `resumo` normalizado — **nunca** o texto original
    do usuário.
 4. Devolvo a resposta do coordenador e encerro.
 
-Se o coordenador devolver um encaminhamento vindo do `tribe/response`, sou eu
+Se o coordenador devolver um encaminhamento vindo do `tribe/coord-response`, sou eu
 quem executa: incremento o `handoff_n` e aciono o coordenador nomeado, com a
 mesma `correlacao`. O responder nomeia; quem conduz o pedido sou eu.
 

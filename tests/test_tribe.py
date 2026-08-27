@@ -25,9 +25,20 @@ EXEMPLOS = SKILL / "resources" / "exemplos.md"
 pytestmark = pytest.mark.skipif(not TRIBE.is_dir(), reason="tribe/ not present")
 
 CATEGORIAS = ("infra", "dados", "suporte")
-SQUADS = {f"tribe/{c}" for c in CATEGORIAS}
+
+#: The three prefixes, kept apart on purpose: a coordinator and its specialists
+#: do not share a slug stem today. Deriving one from the other would hide that.
+COORDENADORES = {f"tribe/coord-{c}" for c in CATEGORIAS}
 ORQUESTRADORES = {f"tribe/orq-{c}" for c in CATEGORIAS}
-RESPONSE = "tribe/response"
+RESPONSE = "tribe/coord-response"
+
+
+def coordenador(categoria: str) -> str:
+    return f"tribe/coord-{categoria}"
+
+
+def especialista(categoria: str, papel: str) -> str:
+    return f"tribe/{categoria}-{papel}"
 
 #: Every squad must field these two roles. The requirement is the squad's shape,
 #: not a suggestion — a squad missing either fails to resolve.
@@ -53,8 +64,8 @@ def schema():
 
 
 def test_the_tribe_holds_every_agent_its_shape_requires(workspace):
-    esperado = {"tribe/manager", RESPONSE} | ORQUESTRADORES | SQUADS | {
-        f"{slug}-{papel}" for slug in SQUADS for papel in PAPEIS_OBRIGATORIOS
+    esperado = {"tribe/manager", RESPONSE} | ORQUESTRADORES | COORDENADORES | {
+        especialista(c, papel) for c in CATEGORIAS for papel in PAPEIS_OBRIGATORIOS
     }
     assert {a.canonical_slug for a in workspace.agents} == esperado
 
@@ -78,7 +89,7 @@ def test_each_orchestrator_leads_exactly_its_coordinator(workspace):
     for categoria in CATEGORIAS:
         resolved = resolve_agent(workspace.get(f"tribe/orq-{categoria}"), workspace=workspace)
         refs = [s.ref for s in resolved.sub_agents]
-        assert [r.slug for r in refs] == [f"tribe/{categoria}"], categoria
+        assert [r.slug for r in refs] == [coordenador(categoria)], categoria
         assert refs[0].required
 
 
@@ -94,22 +105,22 @@ def test_orchestrators_are_ephemeral(workspace):
 
 def test_every_squad_fields_a_planner_and_a_validator(workspace):
     """The shape every squad must have, asserted per squad rather than in prose."""
-    for slug in SQUADS:
-        resolved = resolve_agent(workspace.get(slug), workspace=workspace)
+    for categoria in CATEGORIAS:
+        resolved = resolve_agent(workspace.get(coordenador(categoria)), workspace=workspace)
         por_papel = {s.ref.role: s for s in resolved.sub_agents}
 
         for papel in PAPEIS_OBRIGATORIOS:
-            assert papel in por_papel, f"{slug} has no {papel}"
+            assert papel in por_papel, f"{categoria} has no {papel}"
             sub = por_papel[papel]
-            assert sub.resolved, f"{slug}'s {papel} does not resolve"
+            assert sub.resolved, f"{categoria}'s {papel} does not resolve"
             # A squad missing half its shape must fail, not quietly degrade.
             assert sub.ref.required
-            assert sub.ref.slug == f"{slug}-{papel}"
+            assert sub.ref.slug == especialista(categoria, papel)
 
 
 def test_the_planner_is_declared_before_the_validator(workspace):
     """Order in `agents:` is the documented reading order: plan, then judge."""
-    for slug in SQUADS:
+    for slug in COORDENADORES:
         resolved = resolve_agent(workspace.get(slug), workspace=workspace)
         papeis = [s.ref.role for s in resolved.sub_agents]
         assert papeis == ["planner", "validator", "coordenador-resposta"], slug
@@ -117,7 +128,7 @@ def test_the_planner_is_declared_before_the_validator(workspace):
 
 def test_every_squad_calls_the_response_coordinator(workspace):
     """A squad that finished has to hand the outcome somewhere."""
-    for slug in SQUADS:
+    for slug in COORDENADORES:
         resolved = resolve_agent(workspace.get(slug), workspace=workspace)
         responder = next(s for s in resolved.sub_agents if s.ref.slug == RESPONSE)
         assert responder.resolved
@@ -126,31 +137,35 @@ def test_every_squad_calls_the_response_coordinator(workspace):
 
 def test_planners_and_validators_are_stateless_leaves(workspace):
     """R6: a specialist holds no state, and does not delegate onward."""
-    for slug in SQUADS:
+    for categoria in CATEGORIAS:
         for papel in PAPEIS_OBRIGATORIOS:
-            agent = workspace.get(f"{slug}-{papel}")
-            assert agent.manifest.memory is None, f"{slug}-{papel} declares memory"
-            assert agent.manifest.agents == [], f"{slug}-{papel} delegates onward"
+            agent = workspace.get(especialista(categoria, papel))
+            nome = especialista(categoria, papel)
+            assert agent.manifest.memory is None, f"{nome} declares memory"
+            assert agent.manifest.agents == [], f"{nome} delegates onward"
 
 
 def test_no_planner_or_validator_may_run_shell_commands(workspace):
-    for slug in SQUADS:
+    for categoria in CATEGORIAS:
         for papel in PAPEIS_OBRIGATORIOS:
-            manifest = workspace.get(f"{slug}-{papel}").manifest
+            manifest = workspace.get(especialista(categoria, papel)).manifest
             assert "bash" in manifest.config.tools.denied
 
 
 def test_validators_judge_deterministically(workspace):
     """A verdict that varies between runs is not a verdict."""
-    for slug in SQUADS:
-        assert workspace.get(f"{slug}-validator").manifest.config.temperature == 0.0
+    for categoria in CATEGORIAS:
+        assert workspace.get(
+            especialista(categoria, "validator")
+        ).manifest.config.temperature == 0.0
 
 
 def test_every_validator_carries_its_category_checklist(workspace):
     """The domain knowledge lives in a skill, loaded on demand."""
-    for slug in SQUADS:
-        categoria = slug.split("/")[1]
-        resolved = resolve_agent(workspace.get(f"{slug}-validator"), workspace=workspace)
+    for categoria in CATEGORIAS:
+        resolved = resolve_agent(
+            workspace.get(especialista(categoria, "validator")), workspace=workspace
+        )
         skill = next(s for s in resolved.skills if s.ref.name == f"checklist-{categoria}")
         assert skill.ref.required
         assert skill.local is not None
@@ -164,24 +179,24 @@ def test_a_validator_does_not_rewrite_the_plan(workspace):
     """
     import re
 
-    for slug in SQUADS:
-        prompt = build_system_prompt(
-            resolve_agent(workspace.get(f"{slug}-validator"), workspace=workspace)
-        )
-        assert "não corrijo o plano" in re.sub(r"\s+", " ", prompt).lower(), slug
+    for categoria in CATEGORIAS:
+        prompt = build_system_prompt(resolve_agent(
+            workspace.get(especialista(categoria, "validator")), workspace=workspace
+        ))
+        assert "não corrijo o plano" in re.sub(r"\s+", " ", prompt).lower(), categoria
 
 
 def test_a_planner_does_not_approve_its_own_plan(workspace):
     """The other half of the same separation."""
     import re
 
-    for slug in SQUADS:
-        prompt = build_system_prompt(
-            resolve_agent(workspace.get(f"{slug}-planner"), workspace=workspace)
-        )
+    for categoria in CATEGORIAS:
+        prompt = build_system_prompt(resolve_agent(
+            workspace.get(especialista(categoria, "planner")), workspace=workspace
+        ))
         normalizado = re.sub(r"\s+", " ", prompt).lower()
-        assert "não valido meu" in normalizado, slug
-        assert f"{slug}-validator" in normalizado, slug
+        assert "não valido meu" in normalizado, categoria
+        assert especialista(categoria, "validator") in normalizado, categoria
 
 
 def test_the_response_coordinator_is_terminal(workspace):
@@ -198,16 +213,16 @@ def test_the_response_coordinator_is_terminal(workspace):
 
 def test_a_mutual_reference_would_be_rejected(tmp_path, workspace):
     """Pins the reason the responder is terminal, rather than asserting it."""
-    template = (TRIBE / "response" / "AGENTS.md").read_text(encoding="utf-8")
+    template = (TRIBE / "coord-response" / "AGENTS.md").read_text(encoding="utf-8")
     head, _, body = template.partition("\n---\n\n")
 
-    par = tmp_path / "response"
+    par = tmp_path / "coord-response"
     par.mkdir()
     # Give the responder a reference back to a squad that already points at it.
     (par / "AGENTS.md").write_text(
         head.replace(
             "model:\n  provider:",
-            'agents:\n  - vendor: "tribe"\n    agent: "infra"\n    version: "1.0.0"\n'
+            'agents:\n  - vendor: "tribe"\n    agent: "coord-infra"\n    version: "1.0.0"\n'
             '    role: "volta"\n    required: true\n\nmodel:\n  provider:',
             1,
         )
@@ -220,7 +235,7 @@ def test_a_mutual_reference_would_be_rejected(tmp_path, workspace):
         mutuo.add(agent)
     mutuo.add(load_agent(par))
 
-    resolved = resolve_agent(mutuo.get("tribe/infra"), workspace=mutuo)
+    resolved = resolve_agent(mutuo.get("tribe/coord-infra"), workspace=mutuo)
     assert "agent.cycle" in {d.code for d in resolved.diagnostics.errors}
 
 
@@ -341,10 +356,10 @@ def extract():
 
 def test_extraction_finds_the_leading_json_block(extract):
     reply = (
-        '```json\n{"categoria": "suporte", "destino": "tribe/suporte"}\n```\n'
+        '```json\n{"categoria": "suporte", "destino": "tribe/coord-suporte"}\n```\n'
         "\n---\n\nContenção: reiniciar o serviço de checkout.\n"
     )
-    assert extract(reply) == {"categoria": "suporte", "destino": "tribe/suporte"}
+    assert extract(reply) == {"categoria": "suporte", "destino": "tribe/coord-suporte"}
 
 
 def test_extraction_reports_absence_rather_than_raising(extract):
@@ -400,7 +415,7 @@ def test_the_taxonomy_body_stays_out_of_the_initial_prompt(manager, monkeypatch)
 
 # --- the response coordinator's contract -------------------------------------
 
-RESP_SKILL = TRIBE / "response" / "skills" / "politica-resposta"
+RESP_SKILL = TRIBE / "coord-response" / "skills" / "politica-resposta"
 RESP_EXEMPLOS = RESP_SKILL / "resources" / "exemplos.md"
 
 #: Every field the responder's JSON must carry.
@@ -466,7 +481,7 @@ def test_each_response_example_obeys_the_invariants(example):
         assert example["contexto_handoff"] is None
         assert example["mensagem_usuario"], "notifying with no message says nothing"
     else:
-        assert example["destino"] in SQUADS
+        assert example["destino"] in COORDENADORES
         assert example["contexto_handoff"], "a handoff with no context restarts the work"
         assert example["mensagem_usuario"] is None
         # Handing off at the limit is exactly what the limit forbids.

@@ -146,6 +146,30 @@ Dois desses especialistas são **obrigatórios em todo squad**, e a
 | Planner | `agent-spec-<categoria>-planner` | transforma a demanda em plano verificável |
 | Validator | `agent-spec-<categoria>-validator` | julga o plano, sem corrigi-lo |
 
+### 3.4 O que a `tribe/` usa hoje
+
+Enquanto a decisão da [§3.1](#31-o-conflito-com-a-spec-e-a-proposta) não é
+tomada, a `tribe/` usa nomes curtos, sem o `agent-` inicial. Duas das quatro
+camadas já carregam o prefixo do papel:
+
+| Camada | Hoje na `tribe/` | Sob a taxonomia da §3.2 |
+|---|---|---|
+| Triagem | `tribe/manager` | `agent-triagem` |
+| Orquestração | `tribe/orq-<categoria>` | `agent-orq-<categoria>` |
+| Coordenação | `tribe/coord-<categoria>`, `tribe/coord-response` | `agent-coord-<categoria>` |
+| Especialistas | `tribe/<categoria>-<papel>` | `agent-spec-<categoria>-<papel>` |
+
+**A inconsistência que sobra é a última linha.** Um coordenador é
+`coord-infra` e o seu planner é `infra-planner`: o prefixo do papel vem na
+frente em um e atrás no outro. Isso é visível e incômodo de propósito — alinhar
+os especialistas antes da §3.1 seria presumir a resposta dela, e o custo de
+adiar é um nome torto, não um defeito.
+
+Consequência prática: **o slug do coordenador não é o radical dos seus
+especialistas.** `tests/test_tribe.py` mantém as duas famílias em constantes
+separadas em vez de derivar uma da outra, precisamente para que essa diferença
+não desapareça atrás de uma f-string.
+
 `<categoria>` vem do enum fechado da triagem. Acrescentar uma categoria implica
 acrescentar, no mínimo, um orquestrador e um coordenador — ver
 [UC-10](#uc-10--nova-categoria-entra-na-tribe).
@@ -425,7 +449,7 @@ mudanças que este desenho exige:
 
 | Campo | Hoje | Passa a ser |
 |---|---|---|
-| `destino` | enum `tribe/infra` \| `tribe/dados` \| `tribe/suporte` \| `nenhum` | `agent-orq-<categoria>` derivado, ou `nenhum` |
+| `destino` | enum `tribe/coord-infra` \| `tribe/coord-dados` \| `tribe/coord-suporte` \| `nenhum` | `agent-orq-<categoria>` derivado, ou `nenhum` |
 | `correlacao` | — | **novo**: identificador do pedido, gerado na triagem, propagado até a folha |
 
 ### 5.2 Envelope de delegação
@@ -634,13 +658,13 @@ reproduzível — passe o seu id e o traço só varia nos carimbos de tempo.
 
 ### 5.6 Decisão de resposta
 
-O que o coordenador de resposta emite. **Implementado** em `tribe/response/`.
+O que o coordenador de resposta emite. **Implementado** em `tribe/coord-response/`.
 
 ```json
 {
   "correlacao": "01JQ8F3K2M4N5P6Q7R8S9T0V1W",
   "decisao": "encaminhar",
-  "destino": "tribe/dados",
+  "destino": "tribe/coord-dados",
   "handoff_n": 0,
   "motivo": "Recurso provisionado; configurar a escrita da pipeline é trabalho de dados",
   "mensagem_usuario": null,
@@ -1119,13 +1143,13 @@ violação de R8. O encaminhamento é recusado e vira notificação.
 |---|---|---|
 | Triagem | `tribe/manager`, classifica e delega direto ao squad | mantém; `destino` passa a ser derivado e ganha `correlacao` |
 | Orquestração | **implementada** em `tribe/orq-<categoria>`, entre a triagem e o coordenador | mantém; sob a taxonomia da §3.1 passa a `agent-orq-<categoria>` |
-| Coordenação | `tribe/infra`, `tribe/dados`, `tribe/suporte` delegam a planner, validator e response | mantém; falta apenas o registro em log |
+| Coordenação | `tribe/coord-infra`, `tribe/coord-dados`, `tribe/coord-suporte` delegam a planner, validator e response | mantém; falta apenas o registro em log |
 | Especialistas | **não existem** — `squad/terraform` é o mais próximo | camada nova; `squad/` pode ser absorvido como especialista de infra |
 | Traço do harness | **implementado** em `src/oaf/runtime/trace.py`, com `oaf run --trace` e `oaf trail` | mantém |
 | Log declarado pelo coordenador | **não existe** | contrato da §5.3; conciliável com o traço |
 | Correlação | **implementada** no traço, gerada pelo chamador | falta atravessar os envelopes entre agentes |
 | Conversa multi-turno | **não existe** — hoje uma delegação é uma ida e volta | envelope de turno da §5.4, com teto e registro por turno |
-| Coordenador de resposta | **implementado** em `tribe/response`, chamado pelos três coordenadores | mantém; sob a taxonomia da §3.1 passa a `agent-coord-response` |
+| Coordenador de resposta | **implementado** em `tribe/coord-response`, chamado pelos três coordenadores | mantém; sob a taxonomia da §3.1 passa a `agent-coord-response` |
 | Planner e validator | **implementados** — um par por squad, seis agentes | mantêm; sob a taxonomia passam a `agent-spec-<categoria>-<papel>` |
 
 Quatro das cinco camadas existem em código hoje: triagem, orquestração,

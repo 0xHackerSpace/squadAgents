@@ -11,7 +11,7 @@ tags: ["dados", "orquestracao", "efemero"]
 
 agents:
   - vendor: "tribe"
-    agent: "dados"
+    agent: "coord-dados"
     version: "1.0.0"
     role: "coordenador"
     delegations: ["atender-demanda"]
@@ -48,10 +48,10 @@ por horas.
 
 1. Recebo o envelope da triagem.
 2. Aplico a política, enriquecendo o envelope.
-3. Delego a `tribe/dados` com o `resumo` normalizado.
+3. Delego a `tribe/coord-dados` com o `resumo` normalizado.
 4. Devolvo a resposta e encerro.
 
-Encaminhamento vindo do `tribe/response` é executado por mim, com a mesma
+Encaminhamento vindo do `tribe/coord-response` é executado por mim, com a mesma
 `correlacao` e `handoff_n` incrementado.
 
 ## Limites

@@ -1,9 +1,9 @@
 ---
 name: "Coordenador de Resposta"
 vendorKey: "tribe"
-agentKey: "response"
+agentKey: "coord-response"
 version: "1.0.0"
-slug: "tribe/response"
+slug: "tribe/coord-response"
 
 description: "Decide se o trabalho concluído por um squad volta ao usuário ou segue para outra categoria, e escreve a mensagem final quando volta"
 author: "@0xhackerspace"

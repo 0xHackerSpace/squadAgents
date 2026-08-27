@@ -11,7 +11,7 @@ tags: ["suporte", "orquestracao", "efemero"]
 
 agents:
   - vendor: "tribe"
-    agent: "suporte"
+    agent: "coord-suporte"
     version: "1.0.0"
     role: "coordenador"
     delegations: ["atender-demanda"]
@@ -55,7 +55,7 @@ no meio, ninguém sabe se a notificação saiu. Quem tem trilha é o coordenador
 
 1. Recebo o envelope da triagem, com a `prioridade`.
 2. Aplico a política, enriquecendo o envelope.
-3. Delego a `tribe/suporte` com o `resumo` normalizado.
+3. Delego a `tribe/coord-suporte` com o `resumo` normalizado.
 4. Devolvo a resposta e encerro.
 
 ## Limites

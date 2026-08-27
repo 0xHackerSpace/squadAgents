@@ -25,7 +25,7 @@ build precisa escrever nele.
 {
   "correlacao": "01JQ8F3K2M4N5P6Q7R8S9T0V1W",
   "decisao": "encaminhar",
-  "destino": "tribe/dados",
+  "destino": "tribe/coord-dados",
   "handoff_n": 0,
   "motivo": "Recurso provisionado; configurar a escrita da pipeline é trabalho de dados",
   "mensagem_usuario": null,

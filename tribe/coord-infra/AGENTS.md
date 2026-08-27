@@ -1,9 +1,9 @@
 ---
 name: "Squad de Infraestrutura"
 vendorKey: "tribe"
-agentKey: "infra"
+agentKey: "coord-infra"
 version: "1.0.0"
-slug: "tribe/infra"
+slug: "tribe/coord-infra"
 description: "Atende pedidos de provisionamento, rede, acesso de máquina e custo de nuvem, respondendo com o plano e o que exige aprovação"
 author: "@0xhackerspace"
 license: "MIT"
@@ -23,7 +23,7 @@ agents:
     delegations: ["validar-plano"]
     required: true
   - vendor: "tribe"
-    agent: "response"
+    agent: "coord-response"
     version: "1.0.0"
     role: "coordenador-resposta"
     delegations: ["notificar-usuario", "encaminhar-categoria"]

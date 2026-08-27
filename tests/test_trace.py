@@ -93,7 +93,7 @@ def tribe_traced(relogio):
 @pytest.mark.skipif(not TRIBE.is_dir(), reason="tribe/ not present")
 def test_the_trace_records_every_agent_built(tribe_traced):
     trace, resolved = tribe_traced
-    # tribe/response is built once per coordinator, so builds exceed unique agents.
+    # tribe/coord-response is built once per coordinator, so builds exceed unique agents.
     assert set(trace.agents) == {a.slug for a in resolved.walk()}
     assert len(trace.agents) > len(set(trace.agents)), "response is built per caller"
 
@@ -120,7 +120,7 @@ def test_depth_matches_the_layer(tribe_traced):
     }
     assert profundidade["tribe/manager"] == 0
     assert profundidade["tribe/orq-infra"] == 1
-    assert profundidade["tribe/infra"] == 2
+    assert profundidade["tribe/coord-infra"] == 2
     assert profundidade["tribe/infra-planner"] == 3
 
 
@@ -130,8 +130,8 @@ def test_the_delegation_role_is_recorded(tribe_traced):
     papeis = {
         (e.agente, e.contraparte): e.papel for e in trace.of_kind("delegate")
     }
-    assert papeis[("tribe/infra", "tribe/infra-planner")] == "planner"
-    assert papeis[("tribe/infra", "tribe/infra-validator")] == "validator"
+    assert papeis[("tribe/coord-infra", "tribe/infra-planner")] == "planner"
+    assert papeis[("tribe/coord-infra", "tribe/infra-validator")] == "validator"
     assert papeis[("tribe/manager", "tribe/orq-infra")] == "orquestrador-infraestrutura"
 
 

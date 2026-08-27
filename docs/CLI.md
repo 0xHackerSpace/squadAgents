@@ -137,7 +137,7 @@ inteira:
 build     tribe/manager · openai/gpt-5.2
   delegate  tribe/manager -> tribe/orq-infra (orquestrador-infraestrutura)
   build     tribe/orq-infra · openai/gpt-5.2
-    delegate  tribe/orq-infra -> tribe/infra (coordenador)
+    delegate  tribe/orq-infra -> tribe/coord-infra (coordenador)
 ```
 
 ### Por que os irmãos importam

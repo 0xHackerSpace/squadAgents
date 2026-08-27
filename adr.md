@@ -674,7 +674,7 @@ abrir chamado, definir prioridade e acionar plantão a partir dele, não ler pro
    próprio trabalho. O laço tem teto de duas revisões: na terceira reprovação o
    problema deixou de ser o plano.
 5. **O encaminhamento é dado, não chamada.** Quando um squad termina, ele chama
-   `tribe/response`, que decide entre notificar o usuário e encaminhar a outra
+   `tribe/coord-response`, que decide entre notificar o usuário e encaminhar a outra
    categoria — e no segundo caso **nomeia** o destino em vez de chamá-lo. Se o
    responder declarasse os coordenadores em `agents:` enquanto eles o declaram,
    o par vira referência mútua e o resolvedor reprova com `agent.cycle`
@@ -847,7 +847,7 @@ flowchart TD
 
     subgraph SI["squad de infraestrutura"]
         direction TB
-        CI["<b>tribe/infra</b><br/>coordenador"]
+        CI["<b>tribe/coord-infra</b><br/>coordenador"]
         PI["tribe/infra-planner"]
         VI["tribe/infra-validator<br/>skill: checklist-infra"]
         CI ==> PI
@@ -858,7 +858,7 @@ flowchart TD
 
     subgraph SD["squad de dados"]
         direction TB
-        CD["<b>tribe/dados</b><br/>coordenador"]
+        CD["<b>tribe/coord-dados</b><br/>coordenador"]
         PD["tribe/dados-planner"]
         VD["tribe/dados-validator<br/>skill: checklist-dados"]
         CD ==> PD
@@ -869,7 +869,7 @@ flowchart TD
 
     subgraph SS["squad de suporte"]
         direction TB
-        CS["<b>tribe/suporte</b><br/>coordenador"]
+        CS["<b>tribe/coord-suporte</b><br/>coordenador"]
         PS["tribe/suporte-planner"]
         VS["tribe/suporte-validator<br/>skill: checklist-suporte"]
         CS ==> PS
@@ -883,7 +883,7 @@ flowchart TD
     OS ==> CS
 
     subgraph L5["resposta"]
-        R["<b>tribe/response</b><br/>uma definição, três chamadores<br/>skill: politica-resposta"]
+        R["<b>tribe/coord-response</b><br/>uma definição, três chamadores<br/>skill: politica-resposta"]
     end
 
     CI ==> R
@@ -902,7 +902,7 @@ Três coisas que o desenho torna visíveis e a prosa não:
 - **Os três squads têm forma idêntica.** Coordenador, planner, validator,
   response. A repetição é a especificação (ADR-017, item 4): um squad sem planner
   ou sem validator não resolve, porque ambos são `required`.
-- **`tribe/response` é uma definição, três chamadores.** Aparece uma vez porque é
+- **`tribe/coord-response` é uma definição, três chamadores.** Aparece uma vez porque é
   um diretório só — cada coordenador o instancia ao construir.
 - **A seta de `encaminhar` sobe.** Ela volta à classificação em vez de ir direto
   a outro coordenador, porque o responder nomeia o destino sem chamá-lo. Fosse
@@ -920,14 +920,14 @@ flowchart TD
     J --> A{"acionavel?"}
     A -->|"false"| P["para · devolve as lacunas<br/>nenhum squad é acionado"]
     A -->|"true"| D{"destino"}
-    D -->|"tribe/infra"| I["Squad de Infraestrutura"]
-    D -->|"tribe/dados"| DA["Squad de Dados"]
-    D -->|"tribe/suporte"| S["Squad de Suporte"]
+    D -->|"tribe/coord-infra"| I["Squad de Infraestrutura"]
+    D -->|"tribe/coord-dados"| DA["Squad de Dados"]
+    D -->|"tribe/coord-suporte"| S["Squad de Suporte"]
 
     I & DA & S --> PL["planner da categoria<br/>emite o plano"]
     PL --> VA["validator da categoria<br/>julga, não corrige"]
     VA -->|"reprovado · até 2 revisões"| PL
-    VA -->|"aprovado ou com ressalvas"| RC["tribe/response<br/>carrega politica-resposta"]
+    VA -->|"aprovado ou com ressalvas"| RC["tribe/coord-response<br/>carrega politica-resposta"]
     RC -->|"decisao: encaminhar<br/>nomeia a categoria, não a chama"| D
     RC -->|"decisao: notificar"| R["mensagem ao usuário"]
     P --> U
