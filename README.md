@@ -110,6 +110,10 @@ adapt it.
 
 ## Examples
 
+- [`examples/agents/`](examples/agents) — a gallery of six example agents, one
+  per feature of the format: the bare minimum, the simplified instruction
+  format, a local skill, MCP tool subsetting, memory blocks, and one agent
+  configured for all four harnesses at once. Copy the closest one to start.
 - `examples/run_squad.py` — the squad through the library API, for when it is a
   step inside a larger program rather than something a person types.
 - `examples/agno-quickstarts/` — the plain Agno starter agents this repository

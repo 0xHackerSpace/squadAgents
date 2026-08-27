@@ -192,7 +192,9 @@ As regras de política vivem lá, em Markdown, não em código.
 
 **Adicionar um quarto agente** — um revisor de custo, por exemplo — é criar o
 diretório com `AGENTS.md` e acrescentar uma entrada em `agents:` do orquestrador.
-O `Workspace` acha o irmão sozinho.
+O `Workspace` acha o irmão sozinho. A galeria em
+[`examples/agents/`](../examples/agents) traz um agente por recurso do formato,
+para copiar o mais próximo do que você precisa.
 
 **Levar o squad para outro harness:**
 
