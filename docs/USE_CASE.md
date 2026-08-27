@@ -67,7 +67,8 @@ oaf inspect  squad/validador --prompt   # o prompt exato que o agente recebe
 ```
 
 `oaf run` valida em `lenient` e **recusa executar** se houver erro — rodar um
-agente com definição quebrada produz comportamento inexplicável.
+agente com definição quebrada produz comportamento inexplicável. Todo argumento
+destes comandos está em [`CLI.md`](CLI.md).
 
 ---
 

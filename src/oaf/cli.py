@@ -45,12 +45,22 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="oaf",
         description="A harness for the Open Agent Format (OAF).",
+        epilog="Every command takes a directory containing AGENTS.md, or a directory "
+        "of them. See docs/CLI.md for the full reference.",
     )
     parser.add_argument("--version", action="version", version=f"oaf {__version__}")
-    sub = parser.add_subparsers(dest="command")
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     validate = sub.add_parser("validate", help="check agents against the specification")
-    validate.add_argument("path", type=Path, nargs="?", default=Path("."))
+    validate.add_argument(
+        "path",
+        type=Path,
+        nargs="?",
+        default=Path("."),
+        metavar="PATH",
+        help="agent directory, or a directory of them; every agent found is checked "
+        "(default: the current directory)",
+    )
     validate.add_argument(
         "--profile",
         choices=[p.value for p in Profile],
@@ -65,40 +75,128 @@ def _build_parser() -> argparse.ArgumentParser:
     validate.set_defaults(handler=_cmd_validate)
 
     inspect = sub.add_parser("inspect", help="print an agent's fully resolved definition")
-    inspect.add_argument("path", type=Path)
-    inspect.add_argument("--json", action="store_true")
     inspect.add_argument(
-        "--prompt", action="store_true", help="print the composed system prompt"
+        "path",
+        type=Path,
+        metavar="PATH",
+        help="the agent directory to inspect; its siblings become the workspace, so "
+        "sub-agent references resolve",
     )
-    inspect.add_argument("--harness", choices=sorted(ADAPTERS), default="dry-run")
+    inspect.add_argument(
+        "--json", action="store_true", help="emit the resolved definition as JSON"
+    )
+    inspect.add_argument(
+        "--prompt",
+        action="store_true",
+        help="print the composed system prompt instead of the summary",
+    )
+    inspect.add_argument(
+        "--harness",
+        choices=sorted(ADAPTERS),
+        default="dry-run",
+        help="which adapter resolves the model (default: dry-run, which needs no "
+        "API key and instantiates no client)",
+    )
     inspect.set_defaults(handler=_cmd_inspect)
 
     run = sub.add_parser("run", help="run an agent against a message")
-    run.add_argument("path", type=Path)
-    run.add_argument("message", nargs="+", help="the message to send")
-    run.add_argument("--harness", choices=sorted(ADAPTERS), default="agno")
-    run.add_argument("--model", help="override the model, as 'provider/name' or an alias")
-    run.add_argument("--skills", choices=["eager", "progressive"], default=None)
-    run.add_argument("--stream", action="store_true")
+    run.add_argument(
+        "path",
+        type=Path,
+        metavar="PATH",
+        help="the agent directory to run; its siblings become the workspace, so "
+        "sub-agent references resolve",
+    )
+    run.add_argument(
+        "message", nargs="+", metavar="MESSAGE", help="the message to send; multiple "
+        "words are joined with spaces"
+    )
+    run.add_argument(
+        "--harness",
+        choices=sorted(ADAPTERS),
+        default="agno",
+        help="the backend to run on (default: agno; dry-run builds but refuses to "
+        "execute)",
+    )
+    run.add_argument(
+        "--model",
+        metavar="MODEL",
+        help="override the model for every agent in this run, as 'provider/name' or "
+        "an alias; beats the manifest and the environment",
+    )
+    run.add_argument(
+        "--skills",
+        choices=["eager", "progressive"],
+        default=None,
+        help="how local skills reach the agent: progressive lists them and adds a "
+        "load_skill tool, eager inlines every body into the prompt "
+        "(default: whatever harnessConfig asks for, else progressive)",
+    )
+    run.add_argument(
+        "--stream",
+        action="store_true",
+        help="stream the reply to the terminal as it is produced",
+    )
     run.set_defaults(handler=_cmd_run)
 
     package = sub.add_parser("package", help="pack agents into an OAF .zip")
-    package.add_argument("path", type=Path)
-    package.add_argument("-o", "--output", type=Path, required=True)
-    package.add_argument("--name")
-    package.add_argument("--package-version", default="0.1.0")
-    package.add_argument("--mode", choices=["bundled", "referenced"], default="bundled")
+    package.add_argument(
+        "path",
+        type=Path,
+        metavar="PATH",
+        help="directory holding the agents to pack; every agent found is included",
+    )
+    package.add_argument(
+        "-o", "--output", type=Path, required=True, metavar="FILE",
+        help="the .zip file to write (required)",
+    )
+    package.add_argument(
+        "--name",
+        metavar="NAME",
+        help="package name recorded in PACKAGE.yaml (default: the source directory's name)",
+    )
+    package.add_argument(
+        "--package-version",
+        default="0.1.0",
+        metavar="VERSION",
+        help="package version recorded in PACKAGE.yaml (default: 0.1.0); this is the "
+        "package's version, not any agent's",
+    )
+    package.add_argument(
+        "--mode",
+        choices=["bundled", "referenced"],
+        default="bundled",
+        help="contents.mode in PACKAGE.yaml: bundled is self-contained, referenced "
+        "expects well-known skills to be fetched at install time (default: bundled)",
+    )
     package.set_defaults(handler=_cmd_package)
 
     unpack = sub.add_parser("unpack", help="extract an OAF .zip and inspect it")
-    unpack.add_argument("archive", type=Path)
-    unpack.add_argument("-d", "--destination", type=Path, required=True)
+    unpack.add_argument(
+        "archive", type=Path, metavar="ARCHIVE", help="the .zip file to extract"
+    )
+    unpack.add_argument(
+        "-d", "--destination", type=Path, required=True, metavar="DIR",
+        help="directory to extract into; created if absent (required)",
+    )
     unpack.set_defaults(handler=_cmd_unpack)
 
     export = sub.add_parser("export", help="export an agent to a harness-native format")
-    export.add_argument("path", type=Path)
-    export.add_argument("--target", choices=sorted(EXPORTERS), required=True)
-    export.add_argument("-d", "--destination", type=Path, required=True)
+    export.add_argument(
+        "path", type=Path, metavar="PATH", help="the agent directory to export"
+    )
+    export.add_argument(
+        "--target",
+        choices=sorted(EXPORTERS),
+        required=True,
+        help="the harness format to write (required); each is lossy in its own way "
+        "and reports what it could not carry",
+    )
+    export.add_argument(
+        "-d", "--destination", type=Path, required=True, metavar="DIR",
+        help="directory to write into; the layout beneath it is the target's "
+        "convention (required)",
+    )
     export.set_defaults(handler=_cmd_export)
 
     return parser

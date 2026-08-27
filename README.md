@@ -35,6 +35,8 @@ oaf export   ./my-agent --target letta -d ./out
 ```
 
 Every command takes a directory containing `AGENTS.md`, or a directory of them.
+`run` is the only one that needs an API key. Full reference for every argument,
+exit code and environment variable: [docs/CLI.md](docs/CLI.md).
 
 ### As a library
 
