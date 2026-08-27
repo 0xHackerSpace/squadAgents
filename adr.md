@@ -830,52 +830,72 @@ quem delega a quem, com os nomes reais. Conferido contra o grafo que
 flowchart TD
     U(["pedido do usuário"]) --> M
 
-    M["<b>tribe/manager</b><br/>triagem · Team<br/>skill: taxonomia"]
-    M --> J[/"classificação JSON<br/>categoria · destino · prioridade<br/>confiança · acionável · lacunas"/]
-    J -->|"acionavel: false"| X["devolve as lacunas<br/>nenhum squad é acionado"]
+    M["<b>tribe/manager</b><br/>triagem<br/>skill: taxonomia"]
+    M --> J[/"classificação JSON<br/>destino = tribe/orq-&lt;categoria&gt;"/]
+    J -->|"acionavel: false"| X["devolve as lacunas<br/>nada é acionado"]
+
+    subgraph L2["orquestradores · efêmeros, uma instância por pedido"]
+        direction LR
+        OI["tribe/orq-infra"]
+        OD["tribe/orq-dados"]
+        OS["tribe/orq-suporte"]
+    end
+
+    J -->|"tribe/orq-infra"| OI
+    J -->|"tribe/orq-dados"| OD
+    J -->|"tribe/orq-suporte"| OS
 
     subgraph SI["squad de infraestrutura"]
         direction TB
-        CI["<b>tribe/infra</b><br/>coordenador · Team"]
+        CI["<b>tribe/infra</b><br/>coordenador"]
         PI["tribe/infra-planner"]
         VI["tribe/infra-validator<br/>skill: checklist-infra"]
-        CI --> PI
-        PI -.->|"plano"| VI
-        VI -.->|"reprovado ≤ 2×"| PI
+        CI ==> PI
+        CI ==> VI
+        PI -. "plano" .-> CI
+        CI -. "reprovado ≤ 2×" .-> PI
     end
 
     subgraph SD["squad de dados"]
         direction TB
-        CD["<b>tribe/dados</b><br/>coordenador · Team"]
+        CD["<b>tribe/dados</b><br/>coordenador"]
         PD["tribe/dados-planner"]
         VD["tribe/dados-validator<br/>skill: checklist-dados"]
-        CD --> PD
-        PD -.->|"plano"| VD
-        VD -.->|"reprovado ≤ 2×"| PD
+        CD ==> PD
+        CD ==> VD
+        PD -. "plano" .-> CD
+        CD -. "reprovado ≤ 2×" .-> PD
     end
 
     subgraph SS["squad de suporte"]
         direction TB
-        CS["<b>tribe/suporte</b><br/>coordenador · Team"]
+        CS["<b>tribe/suporte</b><br/>coordenador"]
         PS["tribe/suporte-planner"]
         VS["tribe/suporte-validator<br/>skill: checklist-suporte"]
-        CS --> PS
-        PS -.->|"plano"| VS
-        VS -.->|"reprovado ≤ 2×"| PS
+        CS ==> PS
+        CS ==> VS
+        PS -. "plano" .-> CS
+        CS -. "reprovado ≤ 2×" .-> PS
     end
 
-    J -->|"tribe/infra"| CI
-    J -->|"tribe/dados"| CD
-    J -->|"tribe/suporte"| CS
+    OI ==> CI
+    OD ==> CD
+    OS ==> CS
 
-    VI & VD & VS -->|"aprovado"| R
-    R["<b>tribe/response</b><br/>uma definição, três chamadores<br/>skill: politica-resposta"]
-    R -->|"decisao: encaminhar<br/>nomeia o destino, não o chama"| J
-    R -->|"decisao: notificar"| N["mensagem ao usuário"]
+    subgraph L5["resposta"]
+        R["<b>tribe/response</b><br/>uma definição, três chamadores<br/>skill: politica-resposta"]
+    end
+
+    CI ==> R
+    CD ==> R
+    CS ==> R
+    R -->|"encaminhar · nomeia o destino,<br/>quem executa é o orquestrador"| L2
+    R -->|"notificar"| N["mensagem ao usuário"]
 
     X --> U
     N --> U
-```
+
+    style L2 stroke-dasharray:5 4```
 
 Três coisas que o desenho torna visíveis e a prosa não:
 

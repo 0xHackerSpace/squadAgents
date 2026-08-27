@@ -196,8 +196,20 @@ Efêmero tem significado preciso aqui, e cada item é verificável:
 | Sem memória entre pedidos | dois pedidos idênticos produzem dois traços independentes | em runtime, no log |
 
 A **definição** é permanente — é um diretório em disco. A **instância** é que é
-efêmera. Essa distinção importa: versionar o comportamento do orquestrador é
+efêmera. **Implementado** em `tribe/orq-infra`, `tribe/orq-dados` e
+`tribe/orq-suporte`. Essa distinção importa: versionar o comportamento do orquestrador é
 versionar o diretório, como qualquer outro agente OAF.
+
+A política que cada um carrega, que é o que os salva de serem indireção pura:
+
+| Orquestrador | Verifica antes de acionar o squad |
+|---|---|
+| `orq-infra` | toca produção; cria custo recorrente; destrói recurso |
+| `orq-dados` | toca dado sensível; reescreve histórico; pede número sem dizer contra o quê comparar |
+| `orq-suporte` | o que a `prioridade` exige do plano — em `critica`, contenção no primeiro passo com forma de desfazer |
+
+Nenhuma delas resolve o pedido: elas **enriquecem o envelope** que o coordenador
+recebe. Política é o que o orquestrador carrega, não trabalho que ele faz.
 
 **Por que existir**, se a triagem já escolheu o destino: a orquestração é onde
 mora a política *daquela categoria* — se um pedido de infra precisa passar por
@@ -1064,7 +1076,7 @@ violação de R8. O encaminhamento é recusado e vira notificação.
 | Log declarado pelo modelo é afirmação, não registro | auditoria falsa passa por verdadeira | conciliar com o traço do harness (§5.5); divergência é alarme, não ruído |
 | Quatro camadas custam quatro chamadas de modelo | latência e custo por pedido multiplicados | orquestrador e coordenador podem usar modelo menor; medir antes de otimizar |
 | Duas representações do mesmo nome (opção B) | pedido roteado ao vazio | escolher a opção A |
-| A camada de orquestração pode ficar vazia de propósito | uma indireção que só repassa | se a política da categoria couber em uma frase, a camada não se justifica ainda — decidir por categoria, não por simetria |
+| A camada de orquestração pode ficar vazia de propósito | uma indireção que só repassa | cada orquestrador implementado carrega três verificações próprias (§4.2); uma categoria nova sem política própria não justifica a camada, e isso se decide por categoria |
 | Enum de categoria e diretórios divergem | UC-04 em produção | R1 em CI |
 | Conversa coordenador ↔ especialista não converge | custo e latência sem desfecho | R4: teto de turnos, e só `esclarecimento` mantém a conversa aberta |
 | Tentar declarar a bidirecionalidade como `agents:` mútuo | o harness reprova com `agent.cycle` | está documentado na §4.4; a conversa é protocolo, não topologia |
@@ -1083,8 +1095,8 @@ violação de R8. O encaminhamento é recusado e vira notificação.
 | Componente | Hoje no repositório | Este desenho |
 |---|---|---|
 | Triagem | `tribe/manager`, classifica e delega direto ao squad | mantém; `destino` passa a ser derivado e ganha `correlacao` |
-| Orquestração | **não existe** — a triagem delega direto | camada nova, efêmera, uma por categoria |
-| Coordenação | `tribe/infra`, `tribe/dados`, `tribe/suporte` são terminais | viram coordenadores: delegam a especialistas e registram log |
+| Orquestração | **implementada** em `tribe/orq-<categoria>`, entre a triagem e o coordenador | mantém; sob a taxonomia da §3.1 passa a `agent-orq-<categoria>` |
+| Coordenação | `tribe/infra`, `tribe/dados`, `tribe/suporte` delegam a planner, validator e response | mantém; falta apenas o registro em log |
 | Especialistas | **não existem** — `squad/terraform` é o mais próximo | camada nova; `squad/` pode ser absorvido como especialista de infra |
 | Log | **não existe** | contrato da §5.3, mais o traço de harness da §5.5 |
 | Correlação | **não existe** | atravessa todas as camadas |
@@ -1092,9 +1104,14 @@ violação de R8. O encaminhamento é recusado e vira notificação.
 | Coordenador de resposta | **implementado** em `tribe/response`, chamado pelos três coordenadores | mantém; sob a taxonomia da §3.1 passa a `agent-coord-response` |
 | Planner e validator | **implementados** — um par por squad, seis agentes | mantêm; sob a taxonomia passam a `agent-spec-<categoria>-<papel>` |
 
-O `tribe/response` é a primeira parte deste desenho que existe em código. Ele
-foi implementável hoje porque não depende do traço nem do multi-turno: é um
-agente que emite uma decisão, e a decisão é dado.
+Quatro das cinco camadas existem em código hoje: triagem, orquestração,
+coordenação e a dupla planner/validator, mais o coordenador de resposta. Todas
+foram implementáveis porque não dependem das duas mudanças de núcleo — o traço
+de execução e a delegação multi-turno. O que elas produzem é **dado**, e dado
+o harness já sabe carregar.
+
+O que continua faltando é justamente o que não é dado: o registro do que
+aconteceu, e a conversa de mais de um turno.
 
 **Mudança de núcleo exigida.** O traço do harness (§5.5) não é configuração: é
 funcionalidade nova em `src/oaf/runtime/`. Hoje o `BuildResult` carrega as

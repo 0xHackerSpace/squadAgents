@@ -18,9 +18,9 @@ Sempre, antes de emitir qualquer classificação.
 
 | Categoria | Destino | É sobre |
 |---|---|---|
-| `infraestrutura` | `tribe/infra` | recursos de nuvem, rede, acesso de máquina, custo de infra |
-| `dados` | `tribe/dados` | pipelines, qualidade de dados, modelagem, relatórios, métricas |
-| `suporte` | `tribe/suporte` | algo quebrado agora, dúvida de uso, acesso de pessoa, bug |
+| `infraestrutura` | `tribe/orq-infra` | recursos de nuvem, rede, acesso de máquina, custo de infra |
+| `dados` | `tribe/orq-dados` | pipelines, qualidade de dados, modelagem, relatórios, métricas |
+| `suporte` | `tribe/orq-suporte` | algo quebrado agora, dúvida de uso, acesso de pessoa, bug |
 | `fora_de_escopo` | `nenhum` | jurídico, RH, compras, ou qualquer coisa que a tribe não atende |
 
 ## Fronteiras que confundem

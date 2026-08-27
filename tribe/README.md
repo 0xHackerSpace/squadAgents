@@ -12,6 +12,18 @@ ao squad responsável.
 | `tribe/suporte` | `squad-suporte` | incidentes, dúvidas, acesso de pessoa, bugs |
 | `tribe/response` | `coordenador-resposta` | decide se a resposta volta ao usuário ou segue para outra categoria |
 
+Entre a triagem e cada coordenador há um **orquestrador efêmero**, criado por
+pedido:
+
+| Orquestrador | Conduz | Política que carrega |
+|---|---|---|
+| `tribe/orq-infra` | pedidos de infraestrutura | produção, custo recorrente, destruição de recurso |
+| `tribe/orq-dados` | pedidos de dados | dado sensível, reescrita de histórico, definição antes de investigação |
+| `tribe/orq-suporte` | incidentes e suporte | o que a severidade exige do plano |
+
+Eles não resolvem o pedido: enriquecem o envelope com a política da categoria e
+delegam ao coordenador. Não declaram `memory:` e não guardam nada entre pedidos.
+
 Cada squad tem, obrigatoriamente, **um planner e um validator**:
 
 | Squad | Planner | Validator |
@@ -43,68 +55,95 @@ flowchart TD
 
 ## A topologia, como está hoje
 
-Onze agentes. O diagrama abaixo foi conferido contra o grafo que o harness
-resolve de fato — `oaf inspect tribe/manager` percorre exatamente estas arestas.
+Quatorze agentes, em quatro camadas. O diagrama foi conferido contra o grafo que
+o harness resolve de fato — `oaf inspect tribe/manager` percorre exatamente estas
+arestas.
 
 ```mermaid
 flowchart TD
     U(["pedido do usuário"]) --> M
 
-    M["<b>tribe/manager</b><br/>triagem · Team<br/>skill: taxonomia"]
-    M --> J[/"classificação JSON<br/>categoria · destino · prioridade<br/>confiança · acionável · lacunas"/]
-    J -->|"acionavel: false"| X["devolve as lacunas<br/>nenhum squad é acionado"]
+    M["<b>tribe/manager</b><br/>triagem<br/>skill: taxonomia"]
+    M --> J[/"classificação JSON<br/>destino = tribe/orq-&lt;categoria&gt;"/]
+    J -->|"acionavel: false"| X["devolve as lacunas<br/>nada é acionado"]
+
+    subgraph L2["orquestradores · efêmeros, uma instância por pedido"]
+        direction LR
+        OI["tribe/orq-infra"]
+        OD["tribe/orq-dados"]
+        OS["tribe/orq-suporte"]
+    end
+
+    J -->|"tribe/orq-infra"| OI
+    J -->|"tribe/orq-dados"| OD
+    J -->|"tribe/orq-suporte"| OS
 
     subgraph SI["squad de infraestrutura"]
         direction TB
-        CI["<b>tribe/infra</b><br/>coordenador · Team"]
+        CI["<b>tribe/infra</b><br/>coordenador"]
         PI["tribe/infra-planner"]
         VI["tribe/infra-validator<br/>skill: checklist-infra"]
-        CI --> PI
-        PI -.->|"plano"| VI
-        VI -.->|"reprovado ≤ 2×"| PI
+        CI ==> PI
+        CI ==> VI
+        PI -. "plano" .-> CI
+        CI -. "reprovado ≤ 2×" .-> PI
     end
 
     subgraph SD["squad de dados"]
         direction TB
-        CD["<b>tribe/dados</b><br/>coordenador · Team"]
+        CD["<b>tribe/dados</b><br/>coordenador"]
         PD["tribe/dados-planner"]
         VD["tribe/dados-validator<br/>skill: checklist-dados"]
-        CD --> PD
-        PD -.->|"plano"| VD
-        VD -.->|"reprovado ≤ 2×"| PD
+        CD ==> PD
+        CD ==> VD
+        PD -. "plano" .-> CD
+        CD -. "reprovado ≤ 2×" .-> PD
     end
 
     subgraph SS["squad de suporte"]
         direction TB
-        CS["<b>tribe/suporte</b><br/>coordenador · Team"]
+        CS["<b>tribe/suporte</b><br/>coordenador"]
         PS["tribe/suporte-planner"]
         VS["tribe/suporte-validator<br/>skill: checklist-suporte"]
-        CS --> PS
-        PS -.->|"plano"| VS
-        VS -.->|"reprovado ≤ 2×"| PS
+        CS ==> PS
+        CS ==> VS
+        PS -. "plano" .-> CS
+        CS -. "reprovado ≤ 2×" .-> PS
     end
 
-    J -->|"tribe/infra"| CI
-    J -->|"tribe/dados"| CD
-    J -->|"tribe/suporte"| CS
+    OI ==> CI
+    OD ==> CD
+    OS ==> CS
 
-    VI & VD & VS -->|"aprovado"| R
-    R["<b>tribe/response</b><br/>uma definição, três chamadores<br/>skill: politica-resposta"]
-    R -->|"decisao: encaminhar<br/>nomeia o destino, não o chama"| J
-    R -->|"decisao: notificar"| N["mensagem ao usuário"]
+    subgraph L5["resposta"]
+        R["<b>tribe/response</b><br/>uma definição, três chamadores<br/>skill: politica-resposta"]
+    end
+
+    CI ==> R
+    CD ==> R
+    CS ==> R
+    R -->|"encaminhar · nomeia o destino,<br/>quem executa é o orquestrador"| L2
+    R -->|"notificar"| N["mensagem ao usuário"]
 
     X --> U
     N --> U
-```
+
+    style L2 stroke-dasharray:5 4```
+
+As setas grossas são **delegação real** — arestas que existem no manifesto. As
+pontilhadas são fluxo de dado dentro de uma delegação: o plano sobe do planner ao
+coordenador, e o coordenador é quem leva ao validator. O coordenador referencia
+**todos** os seus specs; planner e validator não se falam diretamente.
 
 Repare no que se repete: **os três squads têm a mesma forma**. Coordenador,
 planner, validator, e o mesmo `tribe/response` ao final. A repetição é a
-especificação — um squad sem planner ou sem validator não resolve, porque os
-dois são `required`.
+especificação — um squad sem planner ou sem validator não resolve, porque os dois
+são `required`.
 
 E repare no que **não** se repete: `tribe/response` é uma definição só, chamada
-pelos três. A seta de `encaminhar` volta à classificação em vez de ir direto a
-outro coordenador, porque o responder nomeia o destino sem chamá-lo.
+pelos três. A seta de `encaminhar` volta à camada de orquestração, e não direto a
+outro coordenador — o responder nomeia o destino, quem executa é o orquestrador
+que conduz o pedido.
 
 ## Rodando
 

@@ -24,7 +24,9 @@ EXEMPLOS = SKILL / "resources" / "exemplos.md"
 
 pytestmark = pytest.mark.skipif(not TRIBE.is_dir(), reason="tribe/ not present")
 
-SQUADS = {"tribe/infra", "tribe/dados", "tribe/suporte"}
+CATEGORIAS = ("infra", "dados", "suporte")
+SQUADS = {f"tribe/{c}" for c in CATEGORIAS}
+ORQUESTRADORES = {f"tribe/orq-{c}" for c in CATEGORIAS}
 RESPONSE = "tribe/response"
 
 #: Every squad must field these two roles. The requirement is the squad's shape,
@@ -51,7 +53,7 @@ def schema():
 
 
 def test_the_tribe_holds_every_agent_its_shape_requires(workspace):
-    esperado = {"tribe/manager", RESPONSE} | SQUADS | {
+    esperado = {"tribe/manager", RESPONSE} | ORQUESTRADORES | SQUADS | {
         f"{slug}-{papel}" for slug in SQUADS for papel in PAPEIS_OBRIGATORIOS
     }
     assert {a.canonical_slug for a in workspace.agents} == esperado
@@ -63,12 +65,31 @@ def test_every_tribe_agent_passes_strict(workspace):
         assert bag.ok, f"{agent.canonical_slug}: {[d.format() for d in bag.errors]}"
 
 
-def test_the_manager_routes_to_all_three_squads(manager):
-    assert {s.ref.slug for s in manager.sub_agents} == SQUADS
+def test_the_manager_routes_to_the_orchestrators_not_the_coordinators(manager):
+    """Triage names an orchestrator; the orchestrator carries the category policy."""
+    assert {s.ref.slug for s in manager.sub_agents} == ORQUESTRADORES
     for sub in manager.sub_agents:
         assert sub.resolved
-        # A missing squad must fail loudly, not silently narrow the routing.
+        # A missing orchestrator must fail loudly, not silently narrow the routing.
         assert sub.ref.required
+
+
+def test_each_orchestrator_leads_exactly_its_coordinator(workspace):
+    for categoria in CATEGORIAS:
+        resolved = resolve_agent(workspace.get(f"tribe/orq-{categoria}"), workspace=workspace)
+        refs = [s.ref for s in resolved.sub_agents]
+        assert [r.slug for r in refs] == [f"tribe/{categoria}"], categoria
+        assert refs[0].required
+
+
+def test_orchestrators_are_ephemeral(workspace):
+    """No memory, and nothing that changes the world on its own."""
+    for slug in ORQUESTRADORES:
+        manifest = workspace.get(slug).manifest
+        assert manifest.memory is None, f"{slug} declares memory"
+        assert "bash" in manifest.config.tools.denied
+        assert "web_fetch" in manifest.config.tools.denied
+        assert manifest.config.temperature == 0.0
 
 
 def test_every_squad_fields_a_planner_and_a_validator(workspace):
@@ -203,6 +224,20 @@ def test_a_mutual_reference_would_be_rejected(tmp_path, workspace):
     assert "agent.cycle" in {d.code for d in resolved.diagnostics.errors}
 
 
+def test_the_tribe_is_four_layers_deep(manager):
+    """manager → orquestrador → coordenador → especialista."""
+    profundidades = []
+
+    def desce(ag, n=1):
+        profundidades.append(n)
+        for s in ag.sub_agents:
+            if s.agent is not None:
+                desce(s.agent, n + 1)
+
+    desce(manager)
+    assert max(profundidades) == 4
+
+
 def test_no_tribe_agent_may_run_shell_commands(workspace):
     for agent in workspace.agents:
         assert "bash" in agent.manifest.config.tools.denied, agent.canonical_slug
@@ -222,9 +257,10 @@ def test_the_schema_is_valid_json_and_self_consistent(schema):
     assert set(schema["required"]) == set(schema["properties"])
 
 
-def test_every_destination_in_the_schema_is_a_real_agent(schema):
+def test_every_destination_in_the_schema_is_an_orchestrator(schema):
+    """Triage routes to layer 2, never straight into a squad."""
     destinos = set(schema["properties"]["destino"]["enum"]) - {"nenhum"}
-    assert destinos == SQUADS
+    assert destinos == ORQUESTRADORES
 
 
 def test_the_prompt_states_every_field_of_the_contract(manager, schema):
@@ -333,15 +369,21 @@ def test_the_tribe_builds_as_one_agno_team(manager, monkeypatch):
 
     assert type(built.agent).__name__ == "Team"
     assert [m.name for m in built.agent.members] == [
-        "Squad de Infraestrutura", "Squad de Dados", "Squad de Suporte"
+        "Orquestrador de Infraestrutura", "Orquestrador de Dados",
+        "Orquestrador de Suporte",
     ]
     assert [getattr(t, "__name__", t) for t in built.agent.tools] == ["load_skill"]
 
-    # Each squad is itself a team: planner, validator, responder.
-    for member in built.agent.members:
-        assert type(member).__name__ == "Team"
-        assert len(member.members) == 3
-        nomes = [m.name for m in member.members]
+    for orquestrador in built.agent.members:
+        # Each orchestrator leads exactly one coordinator.
+        assert type(orquestrador).__name__ == "Team"
+        assert len(orquestrador.members) == 1
+
+        # And each coordinator is itself a team: planner, validator, responder.
+        coordenador = orquestrador.members[0]
+        assert type(coordenador).__name__ == "Team"
+        nomes = [m.name for m in coordenador.members]
+        assert len(nomes) == 3, nomes
         assert any("Planner" in n for n in nomes), nomes
         assert any("Validator" in n for n in nomes), nomes
         assert nomes[-1] == "Coordenador de Resposta"

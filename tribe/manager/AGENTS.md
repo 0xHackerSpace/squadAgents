@@ -18,21 +18,21 @@ skills:
 
 agents:
   - vendor: "tribe"
-    agent: "infra"
+    agent: "orq-infra"
     version: "1.0.0"
-    role: "squad-infraestrutura"
+    role: "orquestrador-infraestrutura"
     delegations: ["provisionar", "rede", "custo", "acesso"]
     required: true
   - vendor: "tribe"
-    agent: "dados"
+    agent: "orq-dados"
     version: "1.0.0"
-    role: "squad-dados"
+    role: "orquestrador-dados"
     delegations: ["pipeline", "qualidade", "modelagem", "relatorio"]
     required: true
   - vendor: "tribe"
-    agent: "suporte"
+    agent: "orq-suporte"
     version: "1.0.0"
-    role: "squad-suporte"
+    role: "orquestrador-suporte"
     delegations: ["incidente", "duvida", "acesso-usuario", "bug"]
     required: true
 
@@ -85,7 +85,7 @@ Sempre estes campos, sempre nesta ordem, sem campos extras:
 {
   "categoria": "infraestrutura",
   "subcategoria": "provisionamento",
-  "destino": "tribe/infra",
+  "destino": "tribe/orq-infra",
   "prioridade": "media",
   "confianca": 0.9,
   "acionavel": true,
@@ -99,7 +99,7 @@ Sempre estes campos, sempre nesta ordem, sem campos extras:
 |---|---|---|
 | `categoria` | string | `infraestrutura`, `dados`, `suporte`, `fora_de_escopo` |
 | `subcategoria` | string | texto livre, minúsculo, uma ou duas palavras |
-| `destino` | string | `tribe/infra`, `tribe/dados`, `tribe/suporte`, `nenhum` |
+| `destino` | string | `tribe/orq-infra`, `tribe/orq-dados`, `tribe/orq-suporte`, `nenhum` |
 | `prioridade` | string | `critica`, `alta`, `media`, `baixa` |
 | `confianca` | número | `0.0` a `1.0`, com uma casa decimal |
 | `acionavel` | booleano | `true` só quando há trabalho suficiente para começar |

@@ -10,7 +10,7 @@ Cinco casos, com o JSON exato. Os dois últimos **não** são acionáveis.
 {
   "categoria": "infraestrutura",
   "subcategoria": "provisionamento",
-  "destino": "tribe/infra",
+  "destino": "tribe/orq-infra",
   "prioridade": "media",
   "confianca": 1.0,
   "acionavel": true,
@@ -28,7 +28,7 @@ Cinco casos, com o JSON exato. Os dois últimos **não** são acionáveis.
 {
   "categoria": "suporte",
   "subcategoria": "incidente",
-  "destino": "tribe/suporte",
+  "destino": "tribe/orq-suporte",
   "prioridade": "critica",
   "confianca": 1.0,
   "acionavel": true,
@@ -49,7 +49,7 @@ porque a mensagem soa urgente.
 {
   "categoria": "dados",
   "subcategoria": "qualidade",
-  "destino": "tribe/dados",
+  "destino": "tribe/orq-dados",
   "prioridade": "alta",
   "confianca": 0.9,
   "acionavel": true,
