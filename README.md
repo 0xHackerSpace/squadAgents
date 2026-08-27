@@ -120,7 +120,9 @@ oaf run tribe/manager "o checkout está fora do ar desde as 14h"
 ```
 
 See [tribe/README.md](tribe/README.md) for the JSON contract, the routing rules,
-and what does and does not enforce them. [docs/SDD.md](docs/SDD.md) specifies a
+and what does and does not enforce them, and [docs/PROMPTS.md](docs/PROMPTS.md)
+for the composed system prompt of every agent — authored body and generated
+sections shown apart. [docs/SDD.md](docs/SDD.md) specifies a
 proposed four-layer evolution of it — ephemeral per-request orchestrators, squad
 coordinators that log every action received and taken, and specialist agents.
 

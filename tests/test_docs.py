@@ -26,6 +26,7 @@ LINKED_DOCS = [
     USE_CASE,
     TRIBE,
     ROOT / "docs" / "SDD.md",
+    ROOT / "docs" / "PROMPTS.md",
     ROOT / "examples" / "agents" / "README.md",
 ]
 

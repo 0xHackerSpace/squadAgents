@@ -145,6 +145,14 @@ pelos três. A seta de `encaminhar` volta à camada de orquestração, e não di
 outro coordenador — o responder nomeia o destino, quem executa é o orquestrador
 que conduz o pedido.
 
+## Os prompts
+
+[`docs/PROMPTS.md`](../docs/PROMPTS.md) traz o prompt composto de cada um dos 14
+agentes, com o corpo autorado e as seções que o harness gera mostrados separados.
+É gerado — `python examples/dump_prompts.py` — e um teste falha se ficar velho.
+
+Para um agente só, sem gerar nada: `oaf inspect tribe/manager --prompt`.
+
 ## Rodando
 
 ```bash

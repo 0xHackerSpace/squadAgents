@@ -123,7 +123,9 @@ oaf inspect PATH [--json] [--prompt] [--harness {agno,dry-run}]
 | `--trace` | — | Imprime o **traço de construção** — cada agente e cada aresta de delegação, na ordem em que o harness as monta — em vez do resumo. |
 | `--harness` | `dry-run` | Qual adapter resolve o modelo. `dry-run` não instancia cliente nem exige chave. |
 
-`--prompt` vence `--json`: pedir os dois imprime o prompt.
+`--prompt` vence `--json`: pedir os dois imprime o prompt. Para os prompts de
+uma árvore inteira de uma vez, veja [`PROMPTS.md`](PROMPTS.md) e o gerador que o
+produz.
 
 ### `--trace` sem executar nada
 
