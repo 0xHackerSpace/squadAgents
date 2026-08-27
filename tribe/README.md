@@ -115,6 +115,11 @@ camadas: a triagem passa a rotear para **orquestradores efêmeros**
 recebem e tudo o que acionam, e que por sua vez chamam **especialistas**
 (`agent-spec-<categoria>-<especialidade>`).
 
+Os especialistas conversam **bidirecionalmente** com os coordenadores: podem
+pedir esclarecimento, entregar parcial ou declarar bloqueio, em turnos com teto.
+Isso é contrato de mensagens, não referência mútua no manifesto — declarar
+`agents:` nos dois lados faz o harness reprovar com `agent.cycle`.
+
 É proposta, não implementação. Os três squads deste diretório são hoje terminais.
 
 ## Adaptando

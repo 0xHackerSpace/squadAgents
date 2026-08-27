@@ -65,9 +65,9 @@ flowchart TD
         E3["agent-spec-suporte-incidente<br/>agent-spec-suporte-acesso"]
     end
 
-    C1 --> E1
-    C2 --> E2
-    C3 --> E3
+    C1 <--> E1
+    C2 <--> E2
+    C3 <--> E3
 
     C1 -.->|"uma entrada por ação<br/>recebida e tomada"| L[("trilha de auditoria<br/>por id de correlação")]
     C2 -.-> L
@@ -81,6 +81,11 @@ flowchart TD
 
 O tracejado da camada 2 marca o que é efêmero. As camadas 1, 3 e 4 são
 permanentes: existem como diretórios no disco e atendem muitos pedidos.
+
+As setas entre coordenação e especialistas são **bidirecionais**: o especialista
+não devolve só o resultado, ele conversa — pede esclarecimento, entrega parcial,
+declara bloqueio. As demais setas são de mão única: a triagem não volta a ser
+consultada, e o orquestrador não é reaberto depois de delegar.
 
 ---
 
@@ -217,10 +222,49 @@ ponto por onde passa tanto a entrada quanto todas as saídas de uma categoria.
 
 ### 4.4 Especialista — `agent-spec-<categoria>-<especialidade>`
 
-**Responsabilidade.** O trabalho concreto. É a folha da árvore: não delega.
+**Responsabilidade.** O trabalho concreto — e **conversar com o coordenador
+enquanto o faz**.
 
-> **Invariante R2.** Especialista não tem `agents:` no manifesto. Um especialista
-> que delegasse reabriria o grafo e tornaria a trilha de log incompleta.
+O especialista não é uma função que recebe entrada e devolve saída. Ele pode
+responder pedindo esclarecimento, entregando resultado parcial, ou declarando
+que está bloqueado. O coordenador responde, e a troca continua até um desfecho.
+
+#### Duas direções que não são a mesma coisa
+
+Bidirecional aqui significa **falar de volta com quem delegou**, não delegar
+adiante. A distinção é estrutural, não semântica:
+
+| Movimento | Permitido | Por quê |
+|---|---|---|
+| Especialista → coordenador (resposta, pergunta, bloqueio) | **sim** | é a conversa desta seção; mantém o grafo com uma única aresta |
+| Especialista → outro especialista | **não** | reabre o grafo e tira o coordenador do caminho, deixando a trilha incompleta |
+| Especialista → orquestrador ou triagem | **não** | pula camadas; quem reclassifica é o coordenador (UC-11) |
+
+> **Invariante R2 (revisada).** Especialista não declara `agents:` no manifesto.
+> A conversa com o coordenador acontece **dentro de uma delegação**, como turnos,
+> não como uma segunda delegação em sentido contrário.
+
+#### Por que não é uma referência mútua
+
+A tentação é declarar `agents:` nos dois lados — o coordenador apontando para o
+especialista e o especialista apontando de volta. **Isso não funciona**, e a
+falha é imediata: o resolvedor do harness percorre o grafo de delegação e
+rejeita o par com `agent.cycle`. Verificado:
+
+```
+$ oaf validate ./par-mutuo
+t/coord v1.0.0 — FAILED
+  error[agent.cycle] delegation cycle: t/coord -> t/spec -> t/coord
+```
+
+E a rejeição está certa. Uma referência mútua diz "estes dois se delegam
+mutuamente", que é um grafo sem fim. O que se quer dizer é outra coisa: "esta
+delegação tem mais de um turno". São afirmações diferentes, e só a segunda tem
+desfecho garantido.
+
+Consequência de desenho: a bidirecionalidade **não aparece no manifesto**. Ela é
+um contrato de mensagens ([§5.4](#54-envelope-de-turno)) mais um limite de
+turnos, ambos fora do que a spec do OAF sabe declarar.
 
 ---
 
@@ -285,12 +329,120 @@ Uma linha JSON por ação. Formato de linhas JSON (`.jsonl`), append-only.
 | `resultado` | string | `aceito` \| `sucesso` \| `parcial` \| `falha` \| `recusado` |
 | `detalhe` | string | uma frase; sem segredo, sem dado pessoal |
 | `duracao_ms` | número | `0` para `recebida` |
+| `interacao` | string | presente quando a entrada pertence a uma conversa com especialista |
+| `turno` | número | o turno registrado; ausente na entrada `recebida` do orquestrador |
 
-> **Invariante R3.** Toda entrada `recebida` de uma correlação tem zero ou mais
-> entradas `tomada` com a mesma correlação, e o conjunto fecha: nenhuma `tomada`
-> existe sem a `recebida` correspondente.
+Com a conversa da [§5.4](#54-envelope-de-turno), **uma entrada de log por
+turno** — não uma por especialista. Um especialista que pediu esclarecimento e
+depois entregou produz três entradas: a tarefa, a pergunta respondida, o
+resultado. É isso que torna a trilha reconstruível: sem o turno, uma conversa de
+três idas aparece como uma ação só, e a auditoria perde justamente onde a
+decisão foi tomada.
 
-### 5.4 Quem escreve o log — a decisão que mais importa aqui
+> **Invariante R3 (revisada).** Toda entrada `recebida` de uma correlação tem
+> zero ou mais entradas `tomada` com a mesma correlação, e o conjunto fecha:
+> nenhuma `tomada` existe sem a `recebida` correspondente. Dentro de uma
+> `interacao`, os turnos são consecutivos e o último é terminal (R5).
+
+### 5.4 Envelope de turno
+
+O que atravessa a fronteira entre coordenador e especialista, nos dois sentidos.
+Um envelope por turno.
+
+```json
+{
+  "correlacao": "01JQ8F3K2M4N5P6Q7R8S9T0V1W",
+  "interacao": "01JQ8F3K2M4N5P6Q7R8S9T0V1W-02",
+  "turno": 2,
+  "de": "agent-spec-infra-terraform",
+  "para": "agent-coord-infra",
+  "tipo": "esclarecimento",
+  "conteudo": "Qual retenção aplicar ao versionamento do bucket?",
+  "pendencias": ["retencao_dias"],
+  "terminal": false
+}
+```
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `correlacao` | string | o pedido, igual da triagem à folha |
+| `interacao` | string | **uma** conversa entre um coordenador e um especialista |
+| `turno` | número | 1, 2, 3… dentro da interação |
+| `de` / `para` | string | os dois lados, sempre coordenador e especialista |
+| `tipo` | string | ver as tabelas abaixo |
+| `conteudo` | string | a mensagem |
+| `pendencias` | lista | o que falta, quando `tipo` é `esclarecimento` ou `parcial` |
+| `terminal` | booleano | `true` fecha a interação |
+
+#### Do coordenador para o especialista
+
+| `tipo` | Significa | `terminal` |
+|---|---|---|
+| `tarefa` | o trabalho inicial | `false` |
+| `resposta` | responde a um `esclarecimento` | `false` |
+| `cancelamento` | abandone; o pedido mudou ou expirou | `true` |
+
+#### Do especialista para o coordenador
+
+| `tipo` | Significa | `terminal` |
+|---|---|---|
+| `resultado` | terminei, aqui está | `true` |
+| `esclarecimento` | preciso disto para prosseguir | `false` |
+| `parcial` | fiz até aqui; falta isto e não depende de mim | `true` |
+| `bloqueio` | não consigo prosseguir; precisa de outro especialista ou de humano | `true` |
+| `recusa` | não é do meu escopo; sugiro quem atende | `true` |
+
+Só `esclarecimento` mantém a conversa aberta vindo do especialista. `parcial` e
+`bloqueio` **fecham** a interação: entregam o que há e devolvem a decisão ao
+coordenador, que pode abrir uma **nova** interação com outro especialista. Isso
+é deliberado — uma conversa que pode virar qualquer coisa é uma conversa sem
+desfecho garantido.
+
+#### Limite de turnos
+
+> **Invariante R4.** Toda interação termina. `max_turnos` é 6 por padrão; ao
+> esgotar sem envelope `terminal`, o coordenador encerra por conta própria,
+> registra `resultado: "falha"` com `detalhe: "limite-de-turnos"`, e trata como
+> `bloqueio`.
+
+Seis turnos são três idas e voltas. Um especialista que precisa de mais que isso
+está com a tarefa mal definida, e o lugar de corrigir é a interação anterior —
+não uma sétima pergunta.
+
+> **Invariante R5.** Uma interação tem turnos consecutivos a partir de 1, com
+> exatamente um envelope `terminal`, e ele é o último.
+
+#### A interação, como máquina de estados
+
+```mermaid
+stateDiagram-v2
+    [*] --> Aberta: coordenador envia tarefa (turno 1)
+    Aberta --> Aguardando: especialista responde
+
+    state Aguardando <<choice>>
+    Aguardando --> Aberta: esclarecimento<br/>coordenador responde (turno n+1)
+    Aguardando --> Concluida: resultado
+    Aguardando --> Entregue: parcial
+    Aguardando --> Interrompida: bloqueio ou recusa
+
+    Aberta --> Interrompida: max_turnos esgotado (R4)<br/>ou cancelamento
+
+    Concluida --> [*]
+    Entregue --> [*]
+    Interrompida --> [*]
+
+    note right of Aberta
+        Só esclarecimento reabre.
+        Todo outro tipo do especialista
+        fecha a interação.
+    end note
+```
+
+Um `bloqueio` não é o fim do pedido, só desta interação: o coordenador pode
+abrir outra, com outro especialista e turno reiniciado — ver
+[UC-17](#uc-17--especialista-declara-bloqueio-e-o-coordenador-reencaminha).
+
+### 5.5 Quem escreve o log — a decisão que mais importa aqui
 
 Há duas fontes possíveis, e elas **não** têm o mesmo valor:
 
@@ -335,12 +487,17 @@ sequenceDiagram
         Note over O: sem memória, sem escrita,<br/>vida limitada a este pedido
         O->>C: delega envelope(K)
         C->>L: recebida · de agent-orq-infra
-        C->>E1: aciona · envelope(K)
-        E1-->>C: resultado
-        C->>L: tomada · agent-spec-infra-terraform · sucesso
-        C->>E2: aciona · envelope(K)
-        E2-->>C: resultado
-        C->>L: tomada · agent-spec-infra-rede · parcial
+        C->>E1: tarefa · turno 1
+        C->>L: tomada · turno 1 · aceito
+        E1-->>C: esclarecimento · turno 2<br/>"qual retenção do versionamento?"
+        C->>L: tomada · turno 2 · parcial
+        Note over C,E1: a conversa é bidirecional,<br/>mas dentro de uma delegação só
+        C->>E1: resposta · turno 3
+        E1-->>C: resultado · turno 4 · terminal
+        C->>L: tomada · turno 4 · sucesso
+        C->>E2: tarefa · nova interação
+        E2-->>C: bloqueio · terminal<br/>"depende de aprovação de rede"
+        C->>L: tomada · falha · bloqueio
         C-->>O: resposta consolidada
         O-->>U: resposta
         Note over O: instância descartada
@@ -367,6 +524,12 @@ sequenceDiagram
 | UC-12 | Incidente crítico com escalonamento paralelo | usuário | 2 → 4 |
 | UC-13 | Orquestrador excede o tempo limite | — | 2 |
 | UC-14 | Divergência entre traço e log declarado | auditor | log |
+| [UC-15](#uc-15--especialista-pede-esclarecimento) | Especialista pede esclarecimento | — | 3 ↔ 4 |
+| UC-16 | Especialista entrega resultado parcial | — | 3 ↔ 4 |
+| [UC-17](#uc-17--especialista-declara-bloqueio-e-o-coordenador-reencaminha) | Especialista declara bloqueio e o coordenador reencaminha | — | 3 ↔ 4 |
+| UC-18 | Especialista recusa por escopo e sugere quem atende | — | 3 ↔ 4 |
+| [UC-19](#uc-19--limite-de-turnos-esgotado) | Limite de turnos esgotado | — | 3 ↔ 4 |
+| UC-20 | Coordenador cancela uma interação em curso | — | 3 ↔ 4 |
 
 ### UC-01 · Pedido acionável roteado e atendido
 
@@ -426,6 +589,61 @@ antes de chegar a runtime.
 **Pós-condição:** a reconstrução é completa se R2 e R3 valerem. R2 garante que
 não há delegação abaixo do especialista escapando ao registro.
 
+### UC-15 · Especialista pede esclarecimento
+
+**Ator:** nenhum humano. **Pré-condição:** interação aberta, turno abaixo de
+`max_turnos`.
+
+1. O coordenador envia `tipo: "tarefa"` no turno 1 e registra a entrada.
+2. O especialista identifica um campo que falta e responde
+   `tipo: "esclarecimento"`, com `pendencias` nomeando o campo, `terminal: false`.
+3. O coordenador registra o turno e decide:
+   - tem a informação → responde `tipo: "resposta"` e a conversa segue;
+   - não tem → fecha a interação e devolve a pendência ao orquestrador, que a
+     devolve ao usuário. **Não inventa o valor.**
+4. Com a resposta, o especialista conclui com `tipo: "resultado"`, `terminal: true`.
+
+**Pós-condição:** a interação tem turnos consecutivos, o último terminal (R5), e
+uma entrada de log por turno.
+
+**Por que o coordenador não responde por conta própria:** o campo que falta
+costuma ser uma decisão do usuário — região, retenção, ambiente. Um coordenador
+que preenche o vazio transforma uma pergunta em um palpite, três camadas longe
+de quem sabe a resposta.
+
+### UC-17 · Especialista declara bloqueio e o coordenador reencaminha
+
+**Ator:** nenhum humano.
+
+1. O especialista responde `tipo: "bloqueio"`, `terminal: true`, dizendo o que o
+   impede — dependência de outro domínio, permissão ausente, decisão humana.
+2. O coordenador registra `resultado: "falha"` com o detalhe do bloqueio.
+3. O coordenador abre uma **nova interação** com o especialista adequado, se
+   houver, com nova `interacao` e turno reiniciado em 1.
+4. Se não houver especialista para o bloqueio, o coordenador devolve ao
+   orquestrador com o motivo.
+
+**Pós-condição:** duas interações distintas na mesma correlação. A trilha mostra
+a tentativa que falhou e a que a substituiu — perder a primeira esconderia por
+que a segunda foi necessária.
+
+### UC-19 · Limite de turnos esgotado
+
+**Ator:** nenhum humano. **Gatilho:** R4.
+
+1. A conversa chega a `max_turnos` sem envelope `terminal`.
+2. O coordenador encerra por conta própria, registra `resultado: "falha"` com
+   `detalhe: "limite-de-turnos"`, e trata como bloqueio.
+3. A resposta ao usuário diz que a tarefa não convergiu e mostra as `pendencias`
+   do último turno.
+
+**Pós-condição:** nenhuma interação fica aberta. R5 vale mesmo aqui: o
+encerramento do coordenador **é** o envelope terminal.
+
+**Leitura do sinal:** esgotar turnos com frequência em uma categoria não é
+problema de limite, é tarefa mal definida chegando ao especialista. O lugar de
+corrigir é a interação anterior.
+
 ### UC-10 · Nova categoria entra na tribe
 
 **Ator:** operador. Exemplo: acrescentar `seguranca`.
@@ -452,7 +670,10 @@ não há delegação abaixo do especialista escapando ao registro.
 | NF-3 | O `correlacao` é idêntico da triagem à folha | teste de trilha |
 | NF-4 | O log não contém credencial nem dado pessoal | revisão do contrato + teste de padrões |
 | NF-5 | A trilha é append-only; nenhuma entrada é reescrita | modo de abertura do arquivo |
-| NF-6 | Especialista não delega (R2) | estático, no manifesto |
+| NF-6 | Especialista não declara `agents:` (R2) | estático, no manifesto |
+| NF-9 | Toda interação termina em no máximo `max_turnos` (R4) | teste de limite |
+| NF-10 | Turnos de uma interação são consecutivos, com um único terminal ao fim (R5) | teste de trilha |
+| NF-11 | Nenhuma referência mútua entre coordenador e especialista | `oaf validate` — o ciclo já reprova |
 | NF-7 | Toda categoria acionável tem orquestrador e coordenador (R1) | estático, em CI |
 | NF-8 | Uma falha de especialista não perde a trilha da correlação | teste de falha |
 
@@ -462,11 +683,14 @@ não há delegação abaixo do especialista escapando ao registro.
 
 | Risco | Impacto | Mitigação |
 |---|---|---|
-| Log declarado pelo modelo é afirmação, não registro | auditoria falsa passa por verdadeira | conciliar com o traço do harness (§5.4); divergência é alarme, não ruído |
+| Log declarado pelo modelo é afirmação, não registro | auditoria falsa passa por verdadeira | conciliar com o traço do harness (§5.5); divergência é alarme, não ruído |
 | Quatro camadas custam quatro chamadas de modelo | latência e custo por pedido multiplicados | orquestrador e coordenador podem usar modelo menor; medir antes de otimizar |
 | Duas representações do mesmo nome (opção B) | pedido roteado ao vazio | escolher a opção A |
 | A camada de orquestração pode ficar vazia de propósito | uma indireção que só repassa | se a política da categoria couber em uma frase, a camada não se justifica ainda — decidir por categoria, não por simetria |
 | Enum de categoria e diretórios divergem | UC-04 em produção | R1 em CI |
+| Conversa coordenador ↔ especialista não converge | custo e latência sem desfecho | R4: teto de turnos, e só `esclarecimento` mantém a conversa aberta |
+| Tentar declarar a bidirecionalidade como `agents:` mútuo | o harness reprova com `agent.cycle` | está documentado na §4.4; a conversa é protocolo, não topologia |
+| Coordenador responde um esclarecimento inventando o valor | palpite vira decisão, três camadas longe de quem sabe | UC-15 passo 3: sem a informação, devolve a pendência |
 
 ---
 
@@ -478,10 +702,11 @@ não há delegação abaixo do especialista escapando ao registro.
 | Orquestração | **não existe** — a triagem delega direto | camada nova, efêmera, uma por categoria |
 | Coordenação | `tribe/infra`, `tribe/dados`, `tribe/suporte` são terminais | viram coordenadores: delegam a especialistas e registram log |
 | Especialistas | **não existem** — `squad/terraform` é o mais próximo | camada nova; `squad/` pode ser absorvido como especialista de infra |
-| Log | **não existe** | contrato da §5.3, mais o traço de harness da §5.4 |
+| Log | **não existe** | contrato da §5.3, mais o traço de harness da §5.5 |
 | Correlação | **não existe** | atravessa todas as camadas |
+| Conversa multi-turno | **não existe** — hoje uma delegação é uma ida e volta | envelope de turno da §5.4, com teto e registro por turno |
 
-**Mudança de núcleo exigida.** O traço do harness (§5.4) não é configuração: é
+**Mudança de núcleo exigida.** O traço do harness (§5.5) não é configuração: é
 funcionalidade nova em `src/oaf/runtime/`. Hoje o `BuildResult` carrega as
 decisões de construção, mas nada registra a execução. Essa é a única alteração
 no harness que este desenho pede — o resto é definição de agente e contrato de
@@ -501,4 +726,12 @@ dados.
    risco correspondente na §9.
 5. **Política de retentativa.** Quem repete um especialista que falhou: o
    coordenador, ou o orquestrador? Afeta R3 — uma retentativa é uma `tomada`
-   nova ou a mesma?
+   nova ou a mesma? Com a §5.4, a resposta provável é: uma **nova interação**,
+   como em UC-17.
+6. **`max_turnos` é global ou por categoria?** Seis é um chute informado. Uma
+   categoria com especialistas que dependem de dado externo pode precisar de
+   mais; medir antes de fixar.
+7. **Como o turno é executado no harness.** Uma conversa multi-turno entre líder
+   e membro exige que o líder reinvoque o membro mantendo o contexto da
+   interação. É possível no adapter atual, mas não é o caminho que ele exercita
+   hoje — e é a segunda coisa a validar num piloto, depois do traço.

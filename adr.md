@@ -862,9 +862,17 @@ próprio, verificação de assinatura, cache local — está em aberto.
 
 **A arquitetura de quatro camadas com orquestradores efêmeros.** Está
 especificada em [`docs/SDD.md`](docs/SDD.md), como proposta, não como decisão
-tomada: ela introduz uma camada que não existe, exige a única mudança de núcleo
-que o projeto ainda não tem — um traço de execução — e depende de uma escolha de
-taxonomia ainda em aberto. Quando for aceita, vira ADR.
+tomada: ela introduz uma camada que não existe, exige duas coisas que o harness
+ainda não faz — um traço de execução e uma delegação multi-turno — e depende de
+uma escolha de taxonomia ainda em aberto. Quando for aceita, vira ADR.
+
+Uma restrição do harness que esse desenho já encontrou vale registrar aqui,
+porque é do harness e não da proposta: **a conversa bidirecional entre
+coordenador e especialista não pode ser declarada como `agents:` nos dois
+lados.** O resolvedor rejeita o par com `agent.cycle` (ADR-009), e está certo —
+referência mútua diz "estes dois se delegam mutuamente", que é um grafo sem fim.
+Multi-turno é outra afirmação: uma delegação com mais de uma ida e volta. É
+contrato de mensagens, não topologia.
 
 **Se o harness deve implementar a OpenHarness API.** O `OpenHarness`, do mesmo
 autor da spec, define uma API REST de harness em 4056 linhas. É a camada natural
