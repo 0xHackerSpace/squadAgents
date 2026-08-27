@@ -68,3 +68,90 @@ def test_no_command_prints_help(capsys):
 
     assert main([]) == EXIT_USAGE
     assert "usage" in capsys.readouterr().out.lower()
+
+
+# --- the execution trace -----------------------------------------------------
+
+
+def test_inspect_trace_prints_the_build_graph(capsys):
+    from pathlib import Path
+
+    tribe = Path(__file__).resolve().parent.parent / "tribe"
+    if not tribe.is_dir():
+        import pytest
+
+        pytest.skip("tribe/ not present")
+
+    assert main(["inspect", str(tribe / "manager"), "--trace"]) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "build     tribe/manager" in out
+    assert "delegate  tribe/manager -> tribe/orq-infra" in out
+
+
+def test_run_writes_a_trail_even_when_the_run_fails(minimal, tmp_path, capsys):
+    """The failure is the event most worth having, so the trail must survive it."""
+    from oaf.runtime import read_trail
+
+    trilha = tmp_path / "t.jsonl"
+    code = main([
+        "run", str(minimal), "oi",
+        "--harness", "dry-run", "--trace", str(trilha), "--correlation", "K",
+    ])
+
+    assert code == EXIT_FAILED  # dry-run refuses to execute
+    assert trilha.is_file(), "the trail was not written"
+    eventos = read_trail(trilha)
+    assert eventos and all(e.correlacao == "K" for e in eventos)
+
+
+def test_trail_reads_back_what_run_wrote(minimal, tmp_path, capsys):
+    trilha = tmp_path / "t.jsonl"
+    main(["run", str(minimal), "oi", "--harness", "dry-run",
+          "--trace", str(trilha), "--correlation", "K"])
+    capsys.readouterr()
+
+    assert main(["trail", str(trilha)]) == EXIT_OK
+    assert "K  (" in capsys.readouterr().out
+
+
+def test_trail_filters_by_correlation(minimal, tmp_path, capsys):
+    trilha = tmp_path / "t.jsonl"
+    for cid in ("A", "B"):
+        main(["run", str(minimal), "oi", "--harness", "dry-run",
+              "--trace", str(trilha), "--correlation", cid])
+    capsys.readouterr()
+
+    assert main(["trail", str(trilha), "--correlation", "A"]) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "A  (" in out and "B  (" not in out
+
+
+def test_trail_on_a_missing_file_fails(tmp_path, capsys):
+    assert main(["trail", str(tmp_path / "nope.jsonl")]) == EXIT_FAILED
+    assert "no trail at" in capsys.readouterr().err
+
+
+def test_trail_on_an_unknown_correlation_fails(minimal, tmp_path, capsys):
+    trilha = tmp_path / "t.jsonl"
+    main(["run", str(minimal), "oi", "--harness", "dry-run",
+          "--trace", str(trilha), "--correlation", "A"])
+    capsys.readouterr()
+
+    assert main(["trail", str(trilha), "--correlation", "Z"]) == EXIT_FAILED
+    assert "no events for correlation" in capsys.readouterr().err
+
+
+def test_a_closed_pipe_is_not_an_error(minimal, tmp_path, monkeypatch):
+    """`oaf trail x | head` must not print a traceback over the user's output."""
+    import io
+
+    trilha = tmp_path / "t.jsonl"
+    main(["run", str(minimal), "oi", "--harness", "dry-run", "--trace", str(trilha)])
+
+    class PipeFechado(io.StringIO):
+        def write(self, _):
+            raise BrokenPipeError
+
+    monkeypatch.setattr("sys.stdout", PipeFechado())
+    monkeypatch.setattr("oaf.cli._silence_stdout", lambda: None)
+    assert main(["trail", str(trilha)]) == EXIT_OK

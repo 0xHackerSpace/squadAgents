@@ -15,6 +15,7 @@ from ..errors import HarnessError
 from ..resolve import ResolvedAgent
 from .models import ResolvedModel, resolve_model
 from .prompt import SkillMode, build_system_prompt, skill_mode_for
+from .trace import Trace
 
 
 @dataclass
@@ -43,10 +44,32 @@ class HarnessAdapter(ABC):
         model_override: str | None = None,
         skill_mode: SkillMode | None = None,
         environ: dict[str, str] | None = None,
+        trace: Trace | None = None,
     ):
         self.model_override = model_override
         self.skill_mode = skill_mode
         self.environ = environ
+        #: Where this adapter records what it did. Absent means record nothing —
+        #: tracing is opt-in, so nothing changes for a caller that never asks.
+        self.trace = trace
+
+    def _record_build(self, agent: ResolvedAgent, model: ResolvedModel, depth: int) -> None:
+        """Record one agent's construction, and the edges to its sub-agents."""
+        if self.trace is None:
+            return
+        self.trace.record(
+            "build", agent.slug, profundidade=depth, detalhe=str(model)
+        )
+        for sub in agent.sub_agents:
+            if sub.agent is None:
+                continue
+            self.trace.record(
+                "delegate",
+                agent.slug,
+                contraparte=sub.agent.slug,
+                papel=sub.ref.role,
+                profundidade=depth + 1,
+            )
 
     def harness_config(self, agent: ResolvedAgent) -> dict[str, Any]:
         """This adapter's slice of the agent's free-form `harnessConfig`."""
@@ -63,7 +86,7 @@ class HarnessAdapter(ABC):
         return model, prompt, mode
 
     @abstractmethod
-    def build(self, agent: ResolvedAgent) -> BuildResult:
+    def build(self, agent: ResolvedAgent, *, depth: int = 0) -> BuildResult:
         """Instantiate `agent` on this harness."""
 
     @abstractmethod
@@ -81,8 +104,9 @@ class DryRunAdapter(HarnessAdapter):
 
     name = "dry-run"
 
-    def build(self, agent: ResolvedAgent) -> BuildResult:
+    def build(self, agent: ResolvedAgent, *, depth: int = 0) -> BuildResult:
         model, prompt, mode = self.plan(agent)
+        self._record_build(agent, model, depth)
         result = BuildResult(
             agent=None,
             slug=agent.slug,
@@ -93,7 +117,9 @@ class DryRunAdapter(HarnessAdapter):
             notes=["dry run: no model client was instantiated"],
         )
         result.sub_agents = [
-            self.build(sub.agent) for sub in agent.sub_agents if sub.agent is not None
+            self.build(sub.agent, depth=depth + 1)
+            for sub in agent.sub_agents
+            if sub.agent is not None
         ]
         return result
 

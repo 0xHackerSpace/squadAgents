@@ -967,11 +967,24 @@ conceito.
 remota pertence a um passo explícito e auditável. Qual é esse passo — comando
 próprio, verificação de assinatura, cache local — está em aberto.
 
+**Um traço de execução separado do log declarado.** Implementado em
+`src/oaf/runtime/trace.py` a partir do desenho da [`docs/SDD.md`](docs/SDD.md).
+A decisão que ele encarna: um log que o agente escreve sobre si é *afirmação* —
+pode omitir uma ação que tomou; um traço que o harness grava é *evidência* — o
+evento existe porque o harness fez a coisa. Os dois têm papéis distintos, e a
+divergência entre eles é alarme.
+
+Três propriedades foram escolhidas em vez de herdadas: a trilha é append-only,
+porque passado que muda não é evidência; a falha é gravada mesmo quando a
+execução aborta, porque é o evento mais importante de ter; e o traço declara o
+que **não** captura — as delegações internas do backend — porque um traço que
+promete demais é pior que nenhum.
+
 **A arquitetura de quatro camadas com orquestradores efêmeros.** Está
 especificada em [`docs/SDD.md`](docs/SDD.md), como proposta, não como decisão
-tomada: ela introduz uma camada que não existe, exige duas coisas que o harness
-ainda não faz — um traço de execução e uma delegação multi-turno — e depende de
-uma escolha de taxonomia ainda em aberto. Quando for aceita, vira ADR.
+tomada: ela introduz uma camada que não existe, dependia de duas coisas que o harness
+não fazia. O traço existe agora; a delegação multi-turno continua faltando, e a
+escolha de taxonomia segue em aberto. Quando for aceita, vira ADR.
 
 Uma restrição do harness que esse desenho já encontrou vale registrar aqui,
 porque é do harness e não da proposta: **a conversa bidirecional entre

@@ -15,6 +15,7 @@ oaf [--version] COMANDO [argumentos]
 | [`run`](#oaf-run) | executa um agente | **sim** |
 | [`package`](#oaf-package) | empacota agentes em um `.zip` | não |
 | [`unpack`](#oaf-unpack) | extrai um `.zip` e inventaria | não |
+| [`trail`](#oaf-trail) | lê uma trilha de execução | não |
 | [`export`](#oaf-export) | converte para o formato de outro harness | não |
 
 ## Códigos de saída
@@ -28,6 +29,9 @@ Iguais em todos os comandos, e verificados:
 | `2` | uso incorreto — comando ausente, comando desconhecido, argumento obrigatório faltando |
 
 Avisos **nunca** afetam o código de saída. Só `error` reprova.
+
+Um **pipe fechado** não é erro: `oaf trail x | head` sai `0` sem imprimir
+traceback por cima da saída do usuário.
 
 ## Convenções
 
@@ -116,9 +120,23 @@ oaf inspect PATH [--json] [--prompt] [--harness {agno,dry-run}]
 | `PATH` | obrigatório | Diretório do agente. **Os irmãos dele viram o workspace**, então referências a sub-agentes resolvem. |
 | `--json` | — | Emite a definição resolvida como JSON. |
 | `--prompt` | — | Imprime o system prompt composto, em vez do resumo. |
+| `--trace` | — | Imprime o **traço de construção** — cada agente e cada aresta de delegação, na ordem em que o harness as monta — em vez do resumo. |
 | `--harness` | `dry-run` | Qual adapter resolve o modelo. `dry-run` não instancia cliente nem exige chave. |
 
 `--prompt` vence `--json`: pedir os dois imprime o prompt.
+
+### `--trace` sem executar nada
+
+`oaf inspect PATH --trace` monta o grafo e imprime o que o harness faria, sem
+chamar modelo algum. É a forma barata de conferir a topologia de uma tribe
+inteira:
+
+```
+build     tribe/manager · openai/gpt-5.2
+  delegate  tribe/manager -> tribe/orq-infra (orquestrador-infraestrutura)
+  build     tribe/orq-infra · openai/gpt-5.2
+    delegate  tribe/orq-infra -> tribe/infra (coordenador)
+```
 
 ### Por que os irmãos importam
 
@@ -154,6 +172,8 @@ oaf run PATH MESSAGE... [--harness {agno,dry-run}] [--model MODEL]
 | `--model` | — | Sobrescreve o modelo de **todos** os agentes desta execução. |
 | `--skills` | do `harnessConfig` | Como as skills locais chegam ao agente. |
 | `--stream` | — | Imprime a resposta conforme ela é produzida. |
+| `--trace` | — | Acrescenta um traço de execução a um arquivo, em linhas JSON. |
+| `--correlation` | um novo | Identificador desta execução. Passe o seu para amarrar o traço a um pedido que você já rastreia. |
 
 ### `run` valida antes de executar
 
@@ -191,6 +211,29 @@ Sem a flag, vale o que `harnessConfig.<harness>.progressive-disclosure` disser;
 sem isso, `progressive`. Use `eager` para depurar um comportamento que dependa da
 skill — assim ela está no contexto desde o primeiro token.
 
+### O traço
+
+`--trace FILE` acrescenta ao arquivo, nunca reescreve — uma trilha cujo passado
+pode mudar não é evidência. O arquivo é criado se não existir, e vários pedidos
+convivem nele, separados por `--correlation`.
+
+O que ele registra:
+
+| Evento | Quando |
+|---|---|
+| `build` | cada agente construído, com modelo e profundidade |
+| `delegate` | cada aresta de delegação que o harness monta |
+| `run-start` / `run-end` | início e fim da execução, com duração |
+| `error` | falha da execução, com o tipo e a mensagem |
+
+**O que ele não registra:** as delegações que um backend faz internamente.
+Depois que um `Team` do Agno começa a rodar, o líder chama os membros dentro do
+Agno, onde este harness não está no caminho. O traço diz o que foi montado e o
+que foi invocado — não cada passo interno.
+
+A trilha é escrita **mesmo quando a execução falha**: o evento de erro é o mais
+importante de ter.
+
 ### Exemplos
 
 ```bash
@@ -199,6 +242,7 @@ oaf run squad/orchestrador "preciso de um bucket para artefatos de build"
 oaf run ./agente "resuma isso" --model anthropic/claude-sonnet-5
 oaf run ./agente "explique" --skills eager --stream
 oaf run ./agente oi --harness dry-run     # só constrói; sempre sai 1
+oaf run ./tribe/manager "..." --trace trilha.jsonl --correlation pedido-42
 ```
 
 ---
@@ -280,6 +324,37 @@ Sai `1` se houver erro.
 ```bash
 oaf unpack dist/squad-1.0.0.zip -d ./instalados
 oaf validate ./instalados          # confira antes de rodar
+```
+
+---
+
+## `oaf trail`
+
+Lê uma trilha escrita por `run --trace` e a apresenta agrupada por pedido.
+
+```
+oaf trail FILE [--correlation ID] [--json]
+```
+
+| Argumento | Padrão | Descrição |
+|---|---|---|
+| `FILE` | obrigatório | A trilha em linhas JSON. |
+| `--correlation` | todos | Mostra só os eventos deste pedido. |
+| `--json` | — | Emite os eventos como JSON, agrupados por correlação. |
+
+Uma linha malformada é **pulada, não fatal**: a trilha é acrescentada por várias
+execuções, e uma linha ruim não pode esconder o resto. Campos desconhecidos
+também são ignorados, para que uma trilha escrita por uma versão mais nova
+continue legível.
+
+Sai `1` se o arquivo não existir, ou se `--correlation` não casar com nada.
+
+### Exemplos
+
+```bash
+oaf trail trilha.jsonl                          # todos os pedidos
+oaf trail trilha.jsonl --correlation pedido-42  # um só
+oaf trail trilha.jsonl --json | jq '.[] | map(select(.kind == "error"))'
 ```
 
 ---

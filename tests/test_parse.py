@@ -63,8 +63,9 @@ def test_system_prompt_format_is_detected(sub_agent):
 def test_yaml_float_version_is_read_as_text():
     """`version: 1.0` parses as a float in YAML; it must not become '1.0' silently."""
     with pytest.raises(ParseError, match="semantic version"):
-        from oaf.models.agent import AgentManifest
         from pydantic import ValidationError
+
+        from oaf.models.agent import AgentManifest
 
         try:
             AgentManifest.model_validate(

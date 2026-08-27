@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from .export import EXPORTERS
 from .loader import load_agent
 from .packaging import build_package, extract_package
 from .resolve import Workspace, resolve_agent
-from .runtime import ADAPTERS, get_adapter
+from .runtime import ADAPTERS, Trace, get_adapter, group_by_correlation, read_trail
 from .validate import Profile, validate_agent
 
 EXIT_OK = 0
@@ -36,9 +37,21 @@ def main(argv: list[str] | None = None) -> int:
     except OafError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FAILED
+    except BrokenPipeError:
+        # `oaf trail x | head` closes stdout early. That is not an error, and
+        # letting it propagate prints a traceback over the user's output.
+        # Redirect the stream so the interpreter's shutdown flush stays quiet.
+        _silence_stdout()
+        return EXIT_OK
     except KeyboardInterrupt:  # pragma: no cover - interactive only
         print("interrupted", file=sys.stderr)
         return EXIT_FAILED
+
+
+def _silence_stdout() -> None:
+    """Point stdout at the void, so a closed pipe does not surface at exit."""
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, sys.stdout.fileno())
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -97,6 +110,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="which adapter resolves the model (default: dry-run, which needs no "
         "API key and instantiates no client)",
     )
+    inspect.add_argument(
+        "--trace",
+        action="store_true",
+        help="print the build trace — every agent and delegation edge, in the "
+        "order the harness wires them — instead of the summary",
+    )
     inspect.set_defaults(handler=_cmd_inspect)
 
     run = sub.add_parser("run", help="run an agent against a message")
@@ -136,6 +155,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "--stream",
         action="store_true",
         help="stream the reply to the terminal as it is produced",
+    )
+    run.add_argument(
+        "--trace",
+        type=Path,
+        metavar="FILE",
+        help="append an execution trace to FILE as JSON lines; records every "
+        "agent built, every delegation edge wired, and the run's outcome",
+    )
+    run.add_argument(
+        "--correlation",
+        metavar="ID",
+        help="correlation id for this run (default: a fresh one); pass your own "
+        "to tie the trace to a request you already track",
     )
     run.set_defaults(handler=_cmd_run)
 
@@ -180,6 +212,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="directory to extract into; created if absent (required)",
     )
     unpack.set_defaults(handler=_cmd_unpack)
+
+    trail = sub.add_parser("trail", help="read an execution trail written by `run --trace`")
+    trail.add_argument(
+        "file", type=Path, metavar="FILE", help="the JSON-lines trail to read"
+    )
+    trail.add_argument(
+        "--correlation",
+        metavar="ID",
+        help="show only this request's events (default: every request in the file)",
+    )
+    trail.add_argument("--json", action="store_true", help="emit the events as JSON")
+    trail.set_defaults(handler=_cmd_trail)
 
     export = sub.add_parser("export", help="export an agent to a harness-native format")
     export.add_argument(
@@ -273,6 +317,13 @@ def _cmd_inspect(args) -> int:
         print(build_system_prompt(resolved))
         return EXIT_OK
 
+    if args.trace:
+        trace = Trace()
+        adapter = get_adapter("dry-run", trace=trace)
+        adapter.build(resolved)
+        print(trace.format())
+        return EXIT_OK
+
     summary = resolved.summary()
     if built is not None:
         summary["resolvedModel"] = {
@@ -327,12 +378,25 @@ def _cmd_run(args) -> int:
         print("error: agent failed lenient validation; refusing to run", file=sys.stderr)
         return EXIT_FAILED
 
-    adapter = get_adapter(args.harness, model_override=args.model, skill_mode=args.skills)
+    trace = Trace(correlacao=args.correlation) if args.correlation else Trace()
+    adapter = get_adapter(
+        args.harness,
+        model_override=args.model,
+        skill_mode=args.skills,
+        trace=trace if args.trace else None,
+    )
     built = adapter.build(resolved)
     for note in built.notes:
         print(f"note: {note}", file=sys.stderr)
 
-    reply = adapter.run(built, " ".join(args.message), stream=args.stream)
+    try:
+        reply = adapter.run(built, " ".join(args.message), stream=args.stream)
+    finally:
+        # The trail is written even when the run failed — a failure is the
+        # event most worth having.
+        if args.trace:
+            trace.write(args.trace)
+            print(f"trace: {len(trace)} events -> {args.trace}", file=sys.stderr)
     if reply:
         print(reply)
     return EXIT_OK
@@ -361,6 +425,33 @@ def _cmd_unpack(args) -> int:
     for diagnostic in contents.diagnostics:
         print("  " + diagnostic.format(relative_to=contents.root), file=sys.stderr)
     return EXIT_FAILED if contents.diagnostics.errors else EXIT_OK
+
+
+def _cmd_trail(args) -> int:
+    if not args.file.is_file():
+        print(f"error: no trail at {args.file}", file=sys.stderr)
+        return EXIT_FAILED
+
+    events = read_trail(args.file)
+    por_pedido = group_by_correlation(events)
+    if args.correlation:
+        por_pedido = {k: v for k, v in por_pedido.items() if k == args.correlation}
+        if not por_pedido:
+            print(f"error: no events for correlation {args.correlation}", file=sys.stderr)
+            return EXIT_FAILED
+
+    if args.json:
+        print(json.dumps(
+            {k: [e.to_dict() for e in v] for k, v in por_pedido.items()}, indent=2
+        ))
+        return EXIT_OK
+
+    for correlacao, sequencia in por_pedido.items():
+        falhou = any(e.kind == "error" for e in sequencia)
+        print(f"\n{correlacao}  ({len(sequencia)} events{', FAILED' if falhou else ''})")
+        for event in sequencia:
+            print("  " + event.format())
+    return EXIT_OK
 
 
 def _cmd_export(args) -> int:

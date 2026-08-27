@@ -4,6 +4,7 @@ from .agno_adapter import AgnoAdapter
 from .base import BuildResult, DryRunAdapter, HarnessAdapter
 from .models import DEFAULT_ALIASES, ResolvedModel, resolve_model
 from .prompt import build_system_prompt, skill_mode_for
+from .trace import Trace, TraceEvent, group_by_correlation, new_correlation, read_trail
 
 ADAPTERS: dict[str, type[HarnessAdapter]] = {
     "dry-run": DryRunAdapter,
@@ -26,4 +27,5 @@ __all__ = [
     "HarnessAdapter", "DryRunAdapter", "AgnoAdapter", "BuildResult",
     "ResolvedModel", "resolve_model", "DEFAULT_ALIASES",
     "build_system_prompt", "skill_mode_for",
+    "Trace", "TraceEvent", "new_correlation", "read_trail", "group_by_correlation",
 ]

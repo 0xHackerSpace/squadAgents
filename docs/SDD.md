@@ -606,8 +606,31 @@ toda delegação do traço tem uma entrada `tomada` correspondente — vira uma
 verificação, e a divergência é sinal de que o coordenador não está registrando o
 que faz.
 
-Nenhum dos dois existe hoje no harness. O traço é a mudança de núcleo que este
-desenho exige; ver [§10](#10-delta-em-relação-ao-que-existe-hoje).
+#### O traço está implementado
+
+`src/oaf/runtime/trace.py`, exposto por `oaf run --trace` e lido por
+`oaf trail`. É opcional: um chamador que não pede traço não paga por ele.
+
+| Registra | Não registra |
+|---|---|
+| cada agente construído, com modelo e profundidade | as delegações que um backend faz **internamente** |
+| cada aresta de delegação que o harness monta | |
+| início, fim e duração de cada execução | |
+| falha, com tipo e mensagem | |
+
+A fronteira está declarada porque um traço que promete demais é pior que
+nenhum. Depois que um `Team` do Agno começa a rodar, o líder chama os membros
+dentro do Agno, onde o harness não está no caminho. O ponto de enganche para
+eventos por membro são os `pre_hooks`/`post_hooks` do Agno — verificá-los exige
+modelo ao vivo, então ficaram de fora em vez de irem sem teste.
+
+Duas propriedades que o tornam evidência e não anotação: a trilha é
+**append-only** — um passado que muda não é evidência — e a falha é gravada
+**mesmo quando a execução aborta**, porque é o evento mais importante de ter.
+
+O `correlacao` fecha a questão em aberto nº 3: quem gera é o **chamador**
+(`--correlation`), e o harness cria um se não vier. É o que mantém a execução
+reproduzível — passe o seu id e o traço só varia nos carimbos de tempo.
 
 ### 5.6 Decisão de resposta
 
@@ -1098,8 +1121,9 @@ violação de R8. O encaminhamento é recusado e vira notificação.
 | Orquestração | **implementada** em `tribe/orq-<categoria>`, entre a triagem e o coordenador | mantém; sob a taxonomia da §3.1 passa a `agent-orq-<categoria>` |
 | Coordenação | `tribe/infra`, `tribe/dados`, `tribe/suporte` delegam a planner, validator e response | mantém; falta apenas o registro em log |
 | Especialistas | **não existem** — `squad/terraform` é o mais próximo | camada nova; `squad/` pode ser absorvido como especialista de infra |
-| Log | **não existe** | contrato da §5.3, mais o traço de harness da §5.5 |
-| Correlação | **não existe** | atravessa todas as camadas |
+| Traço do harness | **implementado** em `src/oaf/runtime/trace.py`, com `oaf run --trace` e `oaf trail` | mantém |
+| Log declarado pelo coordenador | **não existe** | contrato da §5.3; conciliável com o traço |
+| Correlação | **implementada** no traço, gerada pelo chamador | falta atravessar os envelopes entre agentes |
 | Conversa multi-turno | **não existe** — hoje uma delegação é uma ida e volta | envelope de turno da §5.4, com teto e registro por turno |
 | Coordenador de resposta | **implementado** em `tribe/response`, chamado pelos três coordenadores | mantém; sob a taxonomia da §3.1 passa a `agent-coord-response` |
 | Planner e validator | **implementados** — um par por squad, seis agentes | mantêm; sob a taxonomia passam a `agent-spec-<categoria>-<papel>` |
@@ -1113,22 +1137,27 @@ o harness já sabe carregar.
 O que continua faltando é justamente o que não é dado: o registro do que
 aconteceu, e a conversa de mais de um turno.
 
-**Mudança de núcleo exigida.** O traço do harness (§5.5) não é configuração: é
-funcionalidade nova em `src/oaf/runtime/`. Hoje o `BuildResult` carrega as
-decisões de construção, mas nada registra a execução. Essa é a única alteração
-no harness que este desenho pede — o resto é definição de agente e contrato de
-dados.
+**Mudança de núcleo, feita.** O traço era a única alteração no harness que este
+desenho pedia, e está em `src/oaf/runtime/trace.py`. O `BuildResult` continua
+carregando as decisões de construção; o traço passou a registrar a execução.
+
+O que resta é o **log declarado pelo coordenador** (§5.3) e a **conversa
+multi-turno** (§5.4). O primeiro é contrato de instrução, como o JSON da
+triagem. O segundo é o único item que ainda pede algo do adapter: hoje uma
+delegação é uma ida e volta, e multi-turno exige que o líder reinvoque o membro
+mantendo o contexto da interação.
 
 ---
 
 ## 11. Questões em aberto
 
 1. **A opção da §3.1** — A, B ou C. Todo o resto do documento depende dela.
-2. **Onde a trilha é escrita.** Arquivo por tribe, por categoria, ou por dia?
-   Append-only local resolve o começo; um coletor externo muda o contrato.
-3. **Quem gera o `correlacao`.** A triagem é o lugar natural, mas nada no harness
-   gera identificador hoje — e `Math.random`/relógio dentro de agente prejudica
-   reprodutibilidade de teste. Provavelmente pertence ao chamador.
+2. **Onde a trilha é escrita.** Hoje é o arquivo que `--trace` apontar,
+   append-only. Por tribe, por categoria ou por dia continua em aberto, e um
+   coletor externo mudaria o contrato.
+3. ~~**Quem gera o `correlacao`.**~~ **Respondida:** o chamador, via
+   `--correlation`, e o harness gera um se não vier. Passar o seu id mantém o
+   traço reproduzível — ele só varia nos carimbos de tempo.
 4. **Se a camada de orquestração se justifica em todas as categorias.** Ver o
    risco correspondente na §9.
 5. **Política de retentativa.** Quem repete um especialista que falhou: o

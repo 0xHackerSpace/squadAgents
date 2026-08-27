@@ -16,6 +16,7 @@ all work with only the core dependencies installed.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from ..errors import HarnessError
@@ -28,15 +29,18 @@ class AgnoAdapter(HarnessAdapter):
 
     name = "agno"
 
-    def build(self, agent: ResolvedAgent) -> BuildResult:
+    def build(self, agent: ResolvedAgent, *, depth: int = 0) -> BuildResult:
         model, prompt, mode = self.plan(agent)
+        self._record_build(agent, model, depth)
         agno = _import_agno()
 
         client = _build_model_client(agno, model, agent)
         tools = _build_tools(agent, mode)
 
         sub_results = [
-            self.build(sub.agent) for sub in agent.sub_agents if sub.agent is not None
+            self.build(sub.agent, depth=depth + 1)
+            for sub in agent.sub_agents
+            if sub.agent is not None
         ]
 
         kwargs: dict[str, Any] = {
@@ -72,11 +76,34 @@ class AgnoAdapter(HarnessAdapter):
     def run(self, built: BuildResult, message: str, *, stream: bool = False) -> str:
         if built.agent is None:
             raise HarnessError(f"{built.slug} was not built with a runnable adapter")
-        if stream:
-            built.agent.print_response(message, stream=True)
-            return ""
-        response = built.agent.run(message)
-        return getattr(response, "content", None) or str(response)
+
+        inicio = time.monotonic()
+        if self.trace is not None:
+            self.trace.record("run-start", built.slug, detalhe=str(built.model))
+        try:
+            if stream:
+                built.agent.print_response(message, stream=True)
+                reply = ""
+            else:
+                response = built.agent.run(message)
+                reply = getattr(response, "content", None) or str(response)
+        except Exception as exc:
+            # A failure is evidence too, and the one most worth having.
+            if self.trace is not None:
+                self.trace.record(
+                    "error",
+                    built.slug,
+                    duracao_ms=_ms_since(inicio),
+                    detalhe=f"{type(exc).__name__}: {exc}",
+                )
+            raise
+        if self.trace is not None:
+            self.trace.record("run-end", built.slug, duracao_ms=_ms_since(inicio))
+        return reply
+
+
+def _ms_since(inicio: float) -> int:
+    return int((time.monotonic() - inicio) * 1000)
 
 
 def _import_agno() -> dict[str, Any]:
