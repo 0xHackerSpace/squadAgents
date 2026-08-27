@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://0xhackerspace.dev/schemas/triagem-1.0.0.json",
+  "title": "Classificação de triagem da tribe",
+  "description": "Contrato do JSON emitido por tribe/manager. Publicado para quem consome a saída; o harness não o aplica.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "categoria",
+    "subcategoria",
+    "destino",
+    "prioridade",
+    "confianca",
+    "acionavel",
+    "lacunas",
+    "resumo",
+    "justificativa"
+  ],
+  "properties": {
+    "categoria": {
+      "type": "string",
+      "enum": [
+        "infraestrutura",
+        "dados",
+        "suporte",
+        "fora_de_escopo"
+      ]
+    },
+    "subcategoria": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "destino": {
+      "type": "string",
+      "enum": [
+        "tribe/orq-infra",
+        "tribe/orq-dados",
+        "tribe/orq-suporte",
+        "nenhum"
+      ]
+    },
+    "prioridade": {
+      "type": "string",
+      "enum": [
+        "critica",
+        "alta",
+        "media",
+        "baixa"
+      ]
+    },
+    "confianca": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "acionavel": {
+      "type": "boolean"
+    },
+    "lacunas": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resumo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "justificativa": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "description": "Não acionável exige destino nenhum e ao menos uma lacuna",
+      "if": {
+        "properties": {
+          "acionavel": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "destino": {
+            "const": "nenhum"
+          },
+          "lacunas": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "description": "Acionável exige destino real e nenhuma lacuna",
+      "if": {
+        "properties": {
+          "acionavel": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "destino": {
+            "enum": [
+              "tribe/orq-infra",
+              "tribe/orq-dados",
+              "tribe/orq-suporte"
+            ]
+          },
+          "lacunas": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "description": "Confiança abaixo de 0.6 não é acionável",
+      "if": {
+        "properties": {
+          "confianca": {
+            "exclusiveMaximum": 0.6
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "acionavel": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+vendor: "block"
+server: "filesystem"
+version: "1.0.0"
+
+connection:
+  type: "sse"
+  url: "http://localhost:8811/sse"
+  timeout: 60
+
+auth:
+  type: "bearer"
+  token: "${FILESYSTEM_TOKEN}"
+
+permissions:
+  allow_paths: ["/workspace", "/tmp"]
+  deny_paths: ["/system", "/etc"]
+  read_only: false
+
+rate_limit:
+  requests_per_minute: 60
+  burst: 10

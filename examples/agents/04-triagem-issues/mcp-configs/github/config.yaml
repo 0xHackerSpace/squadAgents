@@ -1,0 +1,19 @@
+vendor: "github"
+server: "github"
+version: "1.0.0"
+
+connection:
+  type: "http"
+  url: "https://api.githubcopilot.com/mcp/"
+  timeout: 30
+
+auth:
+  type: "bearer"
+  token: "${GITHUB_TOKEN}"
+
+permissions:
+  read_only: true
+
+rate_limit:
+  requests_per_minute: 60
+  burst: 10

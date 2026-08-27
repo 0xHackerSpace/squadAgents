@@ -1,0 +1,40 @@
+{
+  "vendor": "github",
+  "server": "github",
+  "version": "1.0.0",
+  "selectedTools": [
+    {
+      "name": "list_issues",
+      "enabled": true,
+      "description": "Lista issues abertas do repositório",
+      "required": true
+    },
+    {
+      "name": "issue_read",
+      "enabled": true,
+      "description": "Lê o corpo e os comentários de uma issue",
+      "required": true
+    },
+    {
+      "name": "search_issues",
+      "enabled": true,
+      "description": "Busca issues por texto, para encontrar duplicatas",
+      "required": true
+    },
+    {
+      "name": "get_label",
+      "enabled": false,
+      "description": "Desligada: os rótulos válidos estão nas instruções",
+      "required": false
+    }
+  ],
+  "excludedTools": [
+    "issue_write",
+    "add_issue_comment",
+    "sub_issue_write",
+    "create_pull_request",
+    "merge_pull_request",
+    "admin.*"
+  ],
+  "contextStrategy": "subset"
+}
