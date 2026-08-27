@@ -13,6 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 ADR = ROOT / "adr.md"
 USE_CASE = ROOT / "docs" / "USE_CASE.md"
+TRIBE = ROOT / "tribe" / "README.md"
 
 MERMAID = re.compile(r"```mermaid\n(.*?)```", re.S)
 
@@ -23,6 +24,7 @@ LINKED_DOCS = [
     ROOT / "docs" / "CONFORMANCE.md",
     ROOT / "docs" / "CLI.md",
     USE_CASE,
+    TRIBE,
     ROOT / "examples" / "agents" / "README.md",
 ]
 
@@ -69,21 +71,22 @@ def test_every_internal_anchor_resolves():
     assert not broken, f"anchors with no matching heading: {broken}"
 
 
-def test_adr_carries_every_diagram_in_the_use_case():
+@pytest.mark.parametrize("source", [USE_CASE, TRIBE], ids=lambda p: p.parent.name)
+def test_adr_carries_every_diagram_of_the_consumer_docs(source: Path):
     """adr.md is the single place that holds every flow diagram.
 
-    The use case keeps its own copies because it has to stand alone, so the two
-    must not drift apart.
+    Each consumer document keeps its own copy because it has to stand alone, so
+    the copies must not drift from the record.
     """
-    missing = [d for d in _diagrams(USE_CASE) if d not in _diagrams(ADR)]
+    missing = [d for d in _diagrams(source) if d not in _diagrams(ADR)]
     assert not missing, (
-        f"{len(missing)} diagram(s) in USE_CASE.md are absent or altered in adr.md"
+        f"{len(missing)} diagram(s) in {source.name} are absent or altered in adr.md"
     )
 
 
 def test_the_adr_diagrams_are_all_declared_mermaid():
     diagrams = _diagrams(ADR)
-    assert len(diagrams) >= 16
+    assert len(diagrams) >= 17
     for diagram in diagrams:
         first = diagram.splitlines()[0].strip()
         assert first.startswith(

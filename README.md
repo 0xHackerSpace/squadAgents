@@ -108,6 +108,20 @@ oaf run squad/orchestrador "preciso de um bucket para artefatos de build"
 [docs/USE_CASE.md](docs/USE_CASE.md) for the flow, the three outcomes, and how to
 adapt it.
 
+## The tribe
+
+`tribe/` holds a triage manager and the three squads it routes to. The manager
+classifies a request into JSON — category, destination, priority, confidence,
+whether it is actionable at all — and then delegates to the squad that owns it.
+
+```bash
+export OPENAI_API_KEY=...
+oaf run tribe/manager "o checkout está fora do ar desde as 14h"
+```
+
+See [tribe/README.md](tribe/README.md) for the JSON contract, the routing rules,
+and what does and does not enforce them.
+
 ## Examples
 
 - [`examples/agents/`](examples/agents) — a gallery of six example agents, one

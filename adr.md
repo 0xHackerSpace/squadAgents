@@ -29,9 +29,10 @@ fora deliberadamente, veja [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md).
 | [014](#adr-014--documentação-é-travada-por-teste) | Documentação é travada por teste |
 | [015](#adr-015--três-camadas-de-exemplo-com-públicos-diferentes) | Três camadas de exemplo, com públicos diferentes |
 | [016](#adr-016--no-squad-o-portão-vem-antes-do-gerador) | No squad, o portão vem antes do gerador |
+| [017](#adr-017--na-tribe-a-classificação-é-um-documento-json) | Na tribe, a classificação é um documento JSON |
 
 Os diagramas estão distribuídos pelos ADRs que os justificam; a
-[seção 3](#3-fluxos-completos) reúne os cinco fluxos completos.
+[seção 3](#3-fluxos-completos) reúne os seis fluxos completos.
 
 ---
 
@@ -645,6 +646,49 @@ valida depois produz HCL sobre premissa inventada.
 
 ---
 
+## ADR-017 — Na tribe, a classificação é um documento JSON
+
+Decisões do fluxo em `tribe/`, o segundo consumidor do harness. Uma tribe é um
+gerente de triagem e os squads que ele aciona.
+
+**Contexto.** Um pedido que chega em linguagem natural precisa ser roteado antes
+de ser atendido, e o roteamento precisa ser legível por máquina: um chamador quer
+abrir chamado, definir prioridade e acionar plantão a partir dele, não ler prosa.
+
+**Decisão.**
+
+1. **O gerente emite um JSON de classificação e depois delega.** O JSON vem
+   primeiro, sozinho, em bloco cercado; a resposta do squad vem abaixo, separada
+   por `---`. Assim há roteamento automático *e* um artefato extraível.
+2. **A taxonomia mora na skill, não nas instruções.** Categorias, fronteiras,
+   escala de prioridade e cinco exemplos resolvidos ficam em
+   `skills/taxonomia/`, carregada sob demanda (ADR-007).
+3. **Confiança baixa não é palpite.** Abaixo de `0.6` a classificação é
+   `acionavel: false` e devolve lacunas. Um palpite manda o pedido ao squad
+   errado, e custa uma rodada em dois times.
+4. **Os squads são terminais.** Só o gerente delega. Um squad que roteasse
+   adiante fecharia ciclo na tribe.
+
+**Alternativas descartadas.** Um classificador puro — sem sub-agentes, saída
+100% JSON — seria mais fácil de validar na borda, mas exigiria um segundo passo
+para atender o pedido. A escolha foi por roteamento em uma execução só,
+aceitando que o JSON passa a ser a primeira parte da resposta e não a resposta
+inteira.
+
+**Consequências.**
+- O JSON precisa ser **extraído** do texto. `examples/run_tribe.py` faz isso e
+  trata o caso em que ele não veio — que é resultado possível, não exceção.
+- **O contrato não é aplicado em runtime.** O harness não valida saída de agente,
+  e a spec do OAF não tem campo para declarar schema de saída. O que os testes
+  fixam é o que dá para fixar sem executar modelo: que o schema publicado é
+  autoconsistente, que todo destino nele é um agente real, que o prompt menciona
+  todo campo e todo valor de enum, e que os exemplos que ensinam o contrato o
+  obedecem. O cumprimento em execução depende do modelo.
+- `resources/triagem.schema.json` existe para quem **consome** a saída, não para
+  o harness. É documentação executável do contrato, publicada junto do agente.
+
+---
+
 ## 3. Fluxos completos
 
 ### 3.1 `oaf run` — do diretório à resposta
@@ -764,6 +808,25 @@ sequenceDiagram
 O `Workspace` é o que faz a delegação funcionar: `oaf run squad/orchestrador`
 carrega o **diretório pai** como workspace, então os irmãos ficam visíveis.
 
+### 3.6 Triagem e roteamento na tribe
+
+O fluxo do ADR-017. Este diagrama também abre [`tribe/README.md`](tribe/README.md).
+
+```mermaid
+flowchart TD
+    U(["pedido do usuário"]) --> M["tribe/manager<br/>carrega a skill taxonomia"]
+    M --> J[/"JSON de classificação<br/>categoria · destino · prioridade<br/>confiança · acionável · lacunas"/]
+    J --> A{"acionavel?"}
+    A -->|"false"| P["para · devolve as lacunas<br/>nenhum squad é acionado"]
+    A -->|"true"| D{"destino"}
+    D -->|"tribe/infra"| I["Squad de Infraestrutura"]
+    D -->|"tribe/dados"| DA["Squad de Dados"]
+    D -->|"tribe/suporte"| S["Squad de Suporte"]
+    I & DA & S --> R["resposta do squad,<br/>abaixo do JSON"]
+    P --> U
+    R --> U
+```
+
 ---
 
 ## 4. Decisões menores, registradas
@@ -812,4 +875,5 @@ certa. Mas é escopo próprio, e merece o seu próprio ADR quando for encarado.
 | [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) | o que da spec está coberto, e onde spec e realidade divergem |
 | [`docs/CLI.md`](docs/CLI.md) | todo argumento, código de saída e variável de ambiente |
 | [`docs/USE_CASE.md`](docs/USE_CASE.md) | como rodar o squad, com os três desfechos |
+| [`tribe/README.md`](tribe/README.md) | a triagem, o contrato JSON e as fronteiras entre squads |
 | [`examples/agents/README.md`](examples/agents/README.md) | um exemplo por recurso do formato |

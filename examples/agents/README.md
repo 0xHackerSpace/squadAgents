@@ -16,7 +16,8 @@ Todos passam em `oaf validate --profile strict`.
 
 Para **delegação entre agentes** — `agents:`, `orchestration:`, sub-agentes
 virando um time — veja [`squad/`](../../squad) e
-[`docs/USE_CASE.md`](../../docs/USE_CASE.md).
+[`docs/USE_CASE.md`](../../docs/USE_CASE.md). Para **roteamento com saída
+estruturada**, veja [`tribe/`](../../tribe).
 
 ---
 
