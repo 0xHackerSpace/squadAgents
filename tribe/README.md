@@ -106,6 +106,17 @@ maioria dos empates:
 Prioridade vem do **impacto declarado**, não da urgência com que foi escrito.
 "URGENTE!!!" sem impacto descrito não é `critica`.
 
+## Para onde isto vai
+
+[`docs/SDD.md`](../docs/SDD.md) especifica uma evolução desta tribe em quatro
+camadas: a triagem passa a rotear para **orquestradores efêmeros**
+(`agent-orq-<categoria>`, uma instância por pedido), que delegam a
+**coordenadores** (`agent-coord-<categoria>`) que registram em log tudo o que
+recebem e tudo o que acionam, e que por sua vez chamam **especialistas**
+(`agent-spec-<categoria>-<especialidade>`).
+
+É proposta, não implementação. Os três squads deste diretório são hoje terminais.
+
 ## Adaptando
 
 **Novo squad na tribe** — crie o diretório com `AGENTS.md`, acrescente uma

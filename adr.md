@@ -860,6 +860,12 @@ conceito.
 remota pertence a um passo explícito e auditável. Qual é esse passo — comando
 próprio, verificação de assinatura, cache local — está em aberto.
 
+**A arquitetura de quatro camadas com orquestradores efêmeros.** Está
+especificada em [`docs/SDD.md`](docs/SDD.md), como proposta, não como decisão
+tomada: ela introduz uma camada que não existe, exige a única mudança de núcleo
+que o projeto ainda não tem — um traço de execução — e depende de uma escolha de
+taxonomia ainda em aberto. Quando for aceita, vira ADR.
+
 **Se o harness deve implementar a OpenHarness API.** O `OpenHarness`, do mesmo
 autor da spec, define uma API REST de harness em 4056 linhas. É a camada natural
 acima desta, e nada aqui a impede — os adapters do ADR-005 já são a fronteira
@@ -876,4 +882,5 @@ certa. Mas é escopo próprio, e merece o seu próprio ADR quando for encarado.
 | [`docs/CLI.md`](docs/CLI.md) | todo argumento, código de saída e variável de ambiente |
 | [`docs/USE_CASE.md`](docs/USE_CASE.md) | como rodar o squad, com os três desfechos |
 | [`tribe/README.md`](tribe/README.md) | a triagem, o contrato JSON e as fronteiras entre squads |
+| [`docs/SDD.md`](docs/SDD.md) | o desenho proposto de quatro camadas: efêmeros, coordenadores, log |
 | [`examples/agents/README.md`](examples/agents/README.md) | um exemplo por recurso do formato |

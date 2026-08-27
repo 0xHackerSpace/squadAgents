@@ -25,6 +25,7 @@ LINKED_DOCS = [
     ROOT / "docs" / "CLI.md",
     USE_CASE,
     TRIBE,
+    ROOT / "docs" / "SDD.md",
     ROOT / "examples" / "agents" / "README.md",
 ]
 
@@ -99,3 +100,46 @@ def test_no_document_points_at_the_removed_placeholder_modules():
     for path in LINKED_DOCS:
         text = path.read_text(encoding="utf-8")
         assert "src/agents/agent_" not in text, f"{path.name} still references src/agents/"
+
+
+# --- the SDD's one checkable claim -------------------------------------------
+
+SDD = ROOT / "docs" / "SDD.md"
+
+
+@pytest.mark.skipif(not SDD.is_file(), reason="docs/SDD.md not present")
+def test_the_sdd_taxonomy_table_matches_the_validator():
+    """The SDD states that underscores break OAF identity and hyphens do not.
+
+    That claim is what its whole naming section rests on, so it is checked
+    against the validator rather than trusted.
+    """
+    from oaf.models.common import is_canonical_slug, is_kebab_case
+
+    assert not is_kebab_case("agent_orq_infra")
+    assert is_kebab_case("agent-orq-infra")
+    assert not is_canonical_slug("tribe/agent_orq_infra")
+    assert is_canonical_slug("tribe/agent-orq-infra")
+
+    text = SDD.read_text(encoding="utf-8")
+    assert "identity.not-kebab-case" in text, "the SDD must name the diagnostic it would trigger"
+
+
+@pytest.mark.skipif(not SDD.is_file(), reason="docs/SDD.md not present")
+def test_the_sdd_derivation_rule_produces_the_names_it_shows():
+    """destino = "agent-orq-" + categoria, for every category in the tribe."""
+    import json
+
+    schema = json.loads(
+        (ROOT / "tribe" / "manager" / "skills" / "taxonomia" / "resources"
+         / "triagem.schema.json").read_text(encoding="utf-8")
+    )
+    text = SDD.read_text(encoding="utf-8")
+    acionaveis = [
+        c for c in schema["properties"]["categoria"]["enum"] if c != "fora_de_escopo"
+    ]
+    for categoria in acionaveis:
+        # The SDD's own example names must follow the rule it states.
+        curto = {"infraestrutura": "infra"}.get(categoria, categoria)
+        assert f"agent-orq-{curto}" in text, f"no orchestrator named for {categoria}"
+        assert f"agent-coord-{curto}" in text, f"no coordinator named for {categoria}"
