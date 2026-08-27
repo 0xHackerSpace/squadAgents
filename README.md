@@ -90,7 +90,25 @@ The suite includes a conformance run against the agents published alongside the
 specification. It is skipped when that corpus is not checked out; point
 `OAF_REFERENCE_CORPUS` at your own clone to run it elsewhere.
 
+## The squad
+
+`squad/` holds a working three-agent squad that takes an infrastructure request
+written in plain language and produces Terraform for review — or an objective
+question when the request cannot become code yet.
+
+```bash
+export OPENAI_API_KEY=...
+oaf run squad/orchestrador "preciso de um bucket para artefatos de build"
+```
+
+`squad/orchestrador` delegates to `squad/validador` (a gate that judges the
+*request*, not the code) and then, only on approval, to `squad/terraform`. See
+[docs/USE_CASE.md](docs/USE_CASE.md) for the flow, the three outcomes, and how to
+adapt it.
+
 ## Examples
 
-`examples/agno-quickstarts/` holds the plain Agno starter agents this repository
-began with. They are not OAF agents and are kept only for reference.
+- `examples/run_squad.py` — the squad through the library API, for when it is a
+  step inside a larger program rather than something a person types.
+- `examples/agno-quickstarts/` — the plain Agno starter agents this repository
+  began with. They are not OAF agents and are kept only for reference.

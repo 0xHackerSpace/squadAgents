@@ -565,7 +565,11 @@ qualquer coisa — um zip é conteúdo de terceiro.
 
 ## 5. O que este documento não decide
 
-`src/agents/agent_terraform.py`, `agent_validador.py` e `agent_orchestrador.py`
-continuam vazios. Eles são **consumidores** deste harness, não parte dele: a
-arquitetura acima não pressupõe nada sobre o fluxo entre eles. Quando esse
-desenho fechar, ele merece o seu próprio ADR.
+O squad em `squad/` é **consumidor** deste harness, não parte dele: a arquitetura
+acima não pressupõe nada sobre o fluxo entre aqueles três agentes. As decisões de
+projeto *daquele* fluxo — validar antes de gerar, o portão poder parar, política
+morando em Markdown e não em código — estão em
+[`docs/USE_CASE.md`](docs/USE_CASE.md).
+
+Os arquivos vazios que antes ocupavam `src/agents/` foram removidos: eram
+placeholders para agentes que agora existem de verdade, como definições OAF.
